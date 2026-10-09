@@ -1,0 +1,126 @@
+[project]
+name = "consilium"
+version = "0.1.0"
+description = "Clinical-reporting system for glaucoma screening support (multi-agent, human-in-the-loop)."
+readme = "README.md"
+requires-python = ">=3.11"
+# Dependency policy (AGENTS.md §21): pinned via uv.lock; every addition needs a
+# stated reason. Heavy ML deps (torch/transformers for training) are added in
+# Phase 2 as a separate group so the api/worker image stays lean (I-13).
+dependencies = [
+    # API
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "python-multipart>=0.0.9",        # multipart uploads (POST /v1/cases)
+    # Validation / settings
+    "pydantic>=2.9",
+    "pydantic-settings>=2.5",
+    # Persistence
+    "sqlalchemy[asyncio]>=2.0.36",
+    "alembic>=1.13",
+    "asyncpg>=0.30",
+    # Orchestration (thin wiring only — AGENTS.md §4)
+    "langgraph>=0.2.60",
+    # LLM provider (only src/consilium/llm/ may import this — §4.2)
+    "openai>=1.55",
+    # HTTP client for the vision endpoint (only vision/client_http.py)
+    "httpx>=0.28",
+    # Vision post-processing (in-repo interpretation: masks, CDR, calibration)
+    "numpy>=1.26",
+    "pillow>=10.4",
+    "scipy>=1.14",
+    # Config / prompts
+    "pyyaml>=6.0",
+    "jinja2>=3.1",
+    # Auth
+    "pyjwt>=2.9",
+    # Observability (OTel traces, Prometheus metrics, Langfuse LLM layer)
+    "opentelemetry-api>=1.28",
+    "opentelemetry-sdk>=1.28",
+    "prometheus-client>=0.21",
+    "langfuse>=2.55",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "pytest-cov>=6.0",
+    "hypothesis>=6.119",
+    "respx>=0.22",
+    "ruff>=0.8",
+    "mypy>=1.13",
+    "import-linter>=2.1",
+    "types-pyyaml>=6.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/consilium"]
+
+[tool.uv]
+package = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+markers = [
+    "live: tests that call real external services (OpenAI, live vision endpoint). Never in merge-blocking CI.",
+]
+addopts = "-m 'not live' --cov=src/consilium --cov-report=term-missing --cov-fail-under=0"
+# Coverage floor (AGENTS.md §20): the real floor is enforced below once P1+ code
+# exists; raise over time, NEVER lower. Target: 80 by Phase 9.
+filterwarnings = ["error"]
+
+[tool.coverage.run]
+source = ["src/consilium"]
+branch = true
+
+[tool.coverage.report]
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "\\.\\.\\.",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",    # pycodestyle
+    "F",         # pyflakes
+    "I",         # isort
+    "UP",        # pyupgrade
+    "B",         # bugbear
+    "SIM",       # simplify
+    "RUF",       # ruff-specific
+    "ASYNC",     # async rules
+    "S",         # bandit (security)
+    "C4",        # comprehensions
+]
+ignore = [
+    "S101",      # asserts are expected in tests and validators
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S106", "S105"]   # fixture tokens/keys in tests are synthetic
+"scripts/**" = ["T201"]
+
+[tool.mypy]
+mypy_path = "src"
+packages = ["consilium"]
+strict = true
+disallow_untyped_calls = true
+warn_unused_ignores = true
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["tests.*", "scripts.*", "training.*"]
+disallow_untyped_defs = false

@@ -1,0 +1,32 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Data & artifacts (DVC pointers only — AGENTS.md §5)
+data/
+!data/.gitkeep
+*.dvc
+.dvc/
+
+# Secrets / local env
+.env
+.env.*
+!.env.example
+
+# Coverage / test artifacts
+.coverage
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node (frontend)
+node_modules/
+frontend/dist/

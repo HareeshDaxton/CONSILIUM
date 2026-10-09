@@ -1,0 +1,693 @@
+================================================================================
+CONSILIUM — IMPLEMENTATION PLAN
+Phases P0–P14 broken into sections (3–5 per phase).
+Sources of truth: AGENTS.md (invariants), ARCHITECTURE.md (build spec), SKILLS.md (playbooks).
+Rules that apply to EVERY section:
+  - Run the `architecture-guard` skill checklist before starting.
+  - Tests come with the change, not after.
+  - Default test suite: no network, no real LLM (fakes + recorded fixtures only).
+  - Do not start the next section until the current one's exit check passes.
+  - Anything encoding a clinical judgement gets a `# CLINICAL-REVIEW:` marker.
+================================================================================
+
+
+================================================================================
+PHASE 0 — SCAFFOLD
+Exit: `make ci` green on an empty skeleton.
+================================================================================
+
+Section 0.1 — Repository structure & packaging
+  - Create the full directory tree from ARCHITECTURE.md §4.1
+    (configs/, prompts/, deploy/vision_endpoint/, src/consilium/*, frontend/,
+     training/, tests/{unit,contract,integration,adversarial,e2e,live}, scripts/).
+  - pyproject.toml: project metadata, dependency groups (api, vision, training,
+    dev/test), pytest markers (`live`), coverage floor, ruff + mypy config.
+  - `uv sync` lockfile committed; remove hello-world main.py.
+  Files: pyproject.toml, uv.lock, directory skeleton.
+  Exit: `uv sync --all-groups` works; `pytest` collects (even if 0 tests).
+
+Section 0.2 — Core: settings, logging, errors, ids, clock
+  - `core/settings.py` (pydantic-settings; env table from ARCHITECTURE.md §8;
+    no defaults for secrets).
+  - `core/errors.py` exception hierarchy: InputRejected, VisionFailure,
+    AgentFailure, ValidationFailure, PolicyViolation (+ case-status mapping).
+  - `core/logging.py` structured JSON logs, PHI-safe (no note text, no filenames).
+  - `core/ids.py`, `core/clock.py` (injectable, fakeable).
+  Files: src/consilium/core/*.
+  Exit: unit tests for settings parsing + error mapping; logging emits JSON.
+
+Section 0.3 — CI gates & Makefile
+  - Makefile targets exactly as in AGENTS.md §26 (setup, lint, typecheck, test,
+    test-live, ci, eval-smoke, eval-full, migrate, serve, up, down).
+  - GitHub Actions (or equivalent): ruff → mypy --strict → import-linter →
+    pytest -m "not live" → schema-snapshot check → coverage floor.
+  - `importlinter.ini` with the boundary contracts from ARCHITECTURE.md §4.2.
+  Files: Makefile, .github/workflows/ci.yml, importlinter.ini.
+  Exit: `make ci` green on skeleton; a deliberate boundary violation fails CI.
+
+Section 0.4 — Docker & local compose stack
+  - Dockerfiles: slim CPU image for api/worker (NO torch), frontend placeholder.
+  - docker-compose.yml: api, worker, postgres:16, minio, fake-vision,
+    optional langfuse profile.
+  - `.env.example` documenting every variable from ARCHITECTURE.md §8.
+  - `scripts/fake_vision_server.py` stub (tiny FastAPI returning canned payloads;
+    full canned-output modes land in P2).
+  Files: Dockerfile, docker-compose.yml, .env.example, scripts/fake_vision_server.py.
+  Exit: `make up` brings the stack up; `GET /healthz` placeholder responds.
+
+Section 0.5 — Test harness baseline
+  - pytest config (asyncio mode, markers, coverage), conftest with shared
+    fixtures (fake clock, fake idgen, tmp object store).
+  - Fixture-generator convention: synthetic-only, generators committed
+    (scripts/make_fixtures.py stub).
+  Files: tests/conftest.py, scripts/make_fixtures.py.
+  Exit: a sample unit test + a sample integration test pass under `make test`.
+  PHASE 0 EXIT: `make ci` green end-to-end on the skeleton.
+
+
+================================================================================
+PHASE 1 — SCHEMAS (data contracts)
+Exit: JSON-Schema snapshots committed; contract tests green.
+================================================================================
+
+Section 1.1 — Strict base + enums
+  - `schemas/base.py`: Strict (strict=True, extra="forbid", frozen=True).
+  - All StrEnums: Laterality, Role, AgentName, ScreeningTier, QualityFlag,
+    FactSource, Confidence, ClaimKind, IssueType (+ CaseStatus used later).
+  Files: src/consilium/schemas/base.py, enums.py.
+  Exit: unit tests: strictness enforced, unknown fields rejected, frozen.
+
+Section 1.2 — Vision contracts
+  - ImageQuality, ClassifierOutput, MaskQC, Measurements, CDRMetrics,
+    CADResult, RawVisionOutput — exactly per AGENTS.md §7.
+  Files: src/consilium/schemas/vision.py.
+  Exit: round-trip tests; field-bound validation tests (ge/le/gt).
+
+Section 1.3 — Note + context contracts
+  - ClinicalNote, NoteExtraction, Fact, GlobalContext, RoleContext
+    (incl. `allowed_ids()`).
+  Files: src/consilium/schemas/note.py, context.py.
+  Exit: round-trip tests; GlobalContext uniqueness validator tested.
+
+Section 1.4 — Agent output + audit contracts
+  - Finding, Recommendation, SubReport, Claim, Disagreement, DirectorDraft,
+    Issue, CriticVerdict (with the approved⇔no-issues model validator).
+  Files: src/consilium/schemas/agents.py, audit.py.
+  Exit: round-trip tests; CriticVerdict consistency validator tested;
+        NUMERIC-claim value+ref requirement tested.
+
+Section 1.5 — Fact IDs + JSON-Schema snapshots
+  - `context/facts.py`: the `F` constant class exactly per ARCHITECTURE.md §5.6
+    (single source of all fact IDs; `caveat()` helper).
+  - `make schema-snapshot`: dump JSON Schema for every model; commit snapshots.
+  - Contract test: snapshot diff fails CI on any drift.
+  Files: src/consilium/context/facts.py, scripts/schema_snapshot.py,
+         tests/contract/*.
+  Exit: snapshots committed; deliberate field change → CI failure observed,
+        then reverted.
+  PHASE 1 EXIT: contract suite green; schemas importable with zero internal deps.
+
+
+================================================================================
+PHASE 2 — VISION SUBSYSTEM
+Exit: MLflow metrics stored; CDR tests green; client contract tests green.
+================================================================================
+
+Section 2.1 — Data pipeline (REFUGE)
+  - `training/data/`: REFUGE download/registration script, DATASETS.md entry
+    (source, license verified at download, label provenance).
+  - Patient-level split generator (fixed seed, both eyes together), committed
+    split manifest (IDs only); duplicate check vs external-set plan.
+  - DVC tracking for raw data (gitignored data/).
+  Files: training/data/*, training/data/DATASETS.md.
+  Exit: split manifest committed; leakage test (no patient across splits) passes.
+
+Section 2.2 — Training: SwinV2 + SegFormer
+  - `training/classification/` and `training/segmentation/`: config-driven,
+    seeded, MLflow-logged fine-tuning from public pretrained weights.
+  - One shared preprocessing spec (resize + normalization) exported for reuse.
+  - Eval on val/test: AUROC, sens/spec operating points, Brier, ECE,
+    reliability plot (classifier); Dice/IoU disc+cup, vCDR MAE (segmenter).
+  Files: training/classification/*, training/segmentation/*, configs for runs.
+  Exit: MLflow runs with full metrics + git SHA + data version recorded.
+
+Section 2.3 — In-repo interpretation: calibration, tiers, quality, CDR
+  - `vision/calibration.py`: temperature scaling fit on VALIDATION only;
+    params stored in configs/models.yaml; `p_calibrated = sigmoid(logit(p)/T)`.
+  - `configs/thresholds.yaml`: tier cutoffs with operating-point rationale +
+    `# CLINICAL-REVIEW:` markers; quality-gate thresholds; numeric tolerances.
+  - `vision/quality.py`: client-side precheck (decode, format, size, resolution)
+    + post-inference checks (exposure, blur, disc-visibility, fundus heuristic).
+  - `vision/rle.py` + `vision/postprocess.py` + `vision/cdr.py`: RLE decode,
+    largest-component/hole-fill/cup-clip, vertical CDR (PRIMARY) + area_based
+    (nested convention; NEVER the paper's formula — AGENTS.md §8.2), MaskQC.
+  Files: src/consilium/vision/{calibration,quality,rle,postprocess,cdr}.py,
+         configs/thresholds.yaml, configs/models.yaml.
+  Exit: synthetic-mask CDR tests pass (concentric 0.3/0.5/0.7/0.9, cup=0,
+        cup=disc, tilted, two blobs, cup-outside-disc); calibration unit tests.
+
+Section 2.4 — Endpoint packaging & custom handler
+  - `training/endpoint_packaging/export.py`: weights + preprocessing spec +
+    sha256 + MLflow run id → revision string.
+  - `deploy/vision_endpoint/handler.py`: HF custom handler — preprocessing +
+    both models + RLE encode; returns RawVisionOutput ONLY (no interpretation).
+  - Preprocessing-parity test: training path == handler path on a fixture image.
+  - Deploy to a DEV HF Inference Endpoint (private); bump the revision pin in
+    configs/models.yaml in the same commit.
+  Files: training/endpoint_packaging/*, deploy/vision_endpoint/*.
+  Exit: handler smoke test against dev endpoint (live-tagged); parity test green.
+
+Section 2.5 — VisionClient + pipeline assembly
+  - `vision/client.py` protocol; `client_http.py` (httpx; retries only on
+    503/timeout/connection with backoff+jitter; VISION_TIMEOUT_S budget;
+    per-response revision-pin check → VisionFailure on mismatch).
+  - `client_fake.py`: canned outputs keyed by sha256(image); modes normal /
+    cold_start / flaky_503 / revision_mismatch / malformed / empty_mask.
+    Wire the same canned payloads into scripts/fake_vision_server.py.
+  - `vision/pipeline.py`: run(image_bytes) -> CADResult (precheck → predict →
+    decode → postprocess → CDR → quality → calibrate → tier; fail closed).
+  - Contract tests with respx-recorded responses (no network in CI).
+  Files: src/consilium/vision/{client,client_http,client_fake,pipeline}.py.
+  Exit: revision-pin-mismatch test, cold-start retry test, malformed-payload
+        test all green; `vision.pipeline.run` covered end-to-end with fakes.
+  PHASE 2 EXIT: MLflow metrics stored; CDR + client contract suites green.
+
+
+================================================================================
+PHASE 3 — NOTE INTAKE
+Exit: adversarial note suite green; provenance stored; redaction tests green.
+================================================================================
+
+Section 3.1 — De-identification
+  - `configs/guardrails/policies/phi_patterns.yaml`: pattern name + regex +
+    action (redact/block); values NEVER stored — names only.
+  - `intake/deidentify.py`: redact(text) -> (redacted_text, pattern_names).
+  - Tests: positive, negative near-misses (dates, "2–4 months"), boundary cases;
+    a test proving no match value appears in any output.
+  Files: src/consilium/intake/deidentify.py, phi_patterns.yaml.
+  Exit: de-identification unit suite green.
+
+Section 3.2 — Minimal LLMClient + fake (extraction depends on it)
+  - `llm/client.py` protocol (ParsedResponse[T], generate signature per
+    ARCHITECTURE.md §5.7).
+  - `llm/client_openai.py`: minimal working impl (structured output bound to
+    Pydantic model; verify the pinned SDK's parse API — not from memory).
+  - `llm/client_fake.py`: canned responses keyed by (agent, prompt_version,
+    fixture_id); modes valid / malformed / schema_violating / timeout / refusal.
+  - (Full hardening — retry/budget/timeout polish — is Phase 5.)
+  Files: src/consilium/llm/*.
+  Exit: fake client round-trip test; openai impl compile-checked (live-tagged
+        contract test stub).
+
+Section 3.3 — Extraction pipeline
+  - `prompts/note_extractor/v1.md`: non-instructional input declaration,
+    anti-over-extraction rule, output contract = ClinicalNote.
+  - `intake/extractor.py` + `intake/note_pipeline.py`: FIXED order —
+    input rail (deterministic pre-checks inline for now; NeMo lands in P10)
+    → de-identify → LLM extract → Pydantic validate → ≤2 repair retries
+    with validation error fed back → else FAILED.
+  - Tests: vague note extracts no invented numbers ("eye pressure a bit high"
+    → no IOP value); injection note does not change extraction behavior.
+  Files: src/consilium/intake/*, prompts/note_extractor/v1.md.
+  Exit: extraction unit suite green with FakeLLMClient.
+
+Section 3.4 — Provenance + adversarial note suite
+  - Assemble NoteExtraction on every run: model snapshot, prompt version,
+    redaction pattern names, confidence heuristic (fraction of note mapped;
+    LLM self-confidence NOT trusted).
+  - `tests/adversarial/`: injection notes, PHI-in-note, oversized input,
+    unicode homoglyphs, multilingual noise, extractor-redirection attempts.
+  - Synthetic fixture generator committed (scripts/make_fixtures.py).
+  Files: tests/adversarial/test_note_*.py, scripts/make_fixtures.py.
+  Exit: adversarial suite green; confidence=low path emits the caveat marker
+        that P4's builder will consume.
+  PHASE 3 EXIT: full intake suite green, offline.
+
+
+================================================================================
+PHASE 4 — CONTEXT BUILDER & ROUTER
+Exit: ≥1000-example leak property test green; routing reviewed marker recorded.
+================================================================================
+
+Section 4.1 — Context Builder
+  - `context/builder.py`: CADResult + ClinicalNote + NoteExtraction →
+    GlobalContext. One Fact per field (units attached); caveat facts
+    (cad.caveat.<flag>) for every quality flag / QC failure / low extraction
+    confidence. Guarantees: unique IDs, every CAD field represented.
+  Files: src/consilium/context/builder.py.
+  Exit: builder unit tests incl. caveat-completeness cases.
+
+Section 4.2 — Routing config + Router
+  - `configs/routing.yaml`: allowlists per ARCHITECTURE.md §5.6 (glob support
+    for cad.caveat.*), policy header with reviewer/date +
+    `# CLINICAL-REVIEW:` pending marker.
+  - `context/router.py`: pure projection, deny-by-default, no LLM, no fallback;
+    routing_version = sha256(yaml) stamped on every RoleContext.
+  Files: configs/routing.yaml, src/consilium/context/router.py.
+  Exit: router unit tests (grant, deny-default, glob, hash stability).
+
+Section 4.3 — Fact rendering for prompts
+  - `agents/templates.py` (render_facts): structured block with
+    [trusted-cad-facts] / [untrusted-data] sections per ARCHITECTURE.md §9;
+    untrusted note text delimited and declared non-instructional.
+  Files: src/consilium/agents/templates.py.
+  Exit: render snapshot tests; untrusted block delimiters asserted.
+
+Section 4.4 — Leak property tests
+  - `tests/unit/test_router_leak.py`: hypothesis strategy generating random
+    GlobalContexts (random values incl. note text quoting CDR-like numbers);
+    for every role assert no forbidden fact ID, label, or VALUE string appears
+    in the rendered prompt. ≥1000 examples.
+  Files: tests/unit/test_router_leak.py.
+  Exit: leak test green at ≥1000 examples; a seeded deliberate leak is caught.
+  PHASE 4 EXIT: isolation proven by property test; routing.yaml marked
+  CLINICAL-REVIEW pending.
+
+
+================================================================================
+PHASE 5 — LLM HARDENING + SPECIALISTS
+Exit: scope-violation tests green; live schema-conformance spot check done.
+================================================================================
+
+Section 5.1 — LLMClient hardening
+  - `llm/retry.py`: transient errors (timeout/429/5xx/connection) → exponential
+    backoff + jitter, capped; schema failures → bounded repair retry; refusals
+    → AgentFailure (never retried blindly, never swallowed).
+  - `llm/budget.py`: per-case token budget (LLM_CASE_TOKEN_BUDGET); exceeding
+    raises, never truncates.
+  - Model IDs: dated snapshots from settings, never floating aliases.
+  Files: src/consilium/llm/{retry,budget,client_openai}.py.
+  Exit: unit tests per failure mode; fake/live contract test kept in sync
+        (live run manual).
+
+Section 5.2 — Prompt loader
+  - `llm/prompt_loader.py`: load prompts/<component>/vN.md (Jinja2), render
+    with typed context, record (component, version) for agent_runs.
+  Files: src/consilium/llm/prompt_loader.py.
+  Exit: loader tests; missing version fails loudly.
+
+Section 5.3 — Specialist prompts v1
+  - prompts/ophthalmologist/v1.md, optometrist/v1.md, pharmacist/v1.md —
+    each with: role & scope, exclusions, output contract (SubReport),
+    evidence-citation rule, uncertainty rule, out-of-scope rule,
+    untrusted-data rule, wording rules (I-12; pharmacist: no doses/regimens/
+    brands, "consider … subject to prescriber judgement").
+  Files: prompts/{ophthalmologist,optometrist,pharmacist}/v1.md.
+  Exit: prompts render against fixture contexts; leak test re-run green.
+
+Section 5.4 — BaseSpecialist + fan-out
+  - `agents/base.py`: shared run() — render → generate → validate refs ⊆
+    allowed_ids() → ≤2 repair retries → AgentFailure.
+  - `agents/specialists.py`: three instances + run_all with
+    asyncio.gather(return_exceptions=True); sibling outputs persisted on
+    partial failure; one failure fails the case (I-5).
+  - `tests/unit/test_specialist_scope.py`: out-of-scope refs rejected;
+    malformed output retry-then-fail; adversarial note redirection attempt;
+    pharmacist declines CDR judgement.
+  Files: src/consilium/agents/{base,specialists}.py.
+  Exit: scope + retry suites green; `make test-live` schema-conformance spot
+        check on ≥20 synthetic cases (manual run, result recorded).
+  PHASE 5 EXIT: specialists produce valid SubReports under fakes; isolation
+  enforced twice (router + validator).
+
+
+================================================================================
+PHASE 6 — DIRECTOR
+Exit: claims carry valid refs; disagreements preserved on curated cases.
+================================================================================
+
+Section 6.1 — Director prompt v1
+  - prompts/director/v1.md: attribute-don't-launder rules (source_roles on
+    every claim), disagreement preservation rule, NUMERIC-claim rule
+    (numeric_value + numeric_ref), mandatory limitations (every caveat fact,
+    screening-support wording, absent VF/OCT), wording contract (I-12).
+  Files: prompts/director/v1.md.
+  Exit: prompt renders against fixture sub-reports + fact sheet.
+
+Section 6.2 — Draft + revise implementation
+  - `agents/director.py`: draft(sub_reports, global_ctx) -> DirectorDraft;
+    revise(draft, issues, round) — receives previous draft + issue list ONLY
+    (not critic reasoning); must address each issue ID or justify non-change;
+    revision += 1.
+  Files: src/consilium/agents/director.py.
+  Exit: unit tests with FakeLLMClient: refs resolve, limitations complete,
+        revise bumps revision and addresses issues.
+
+Section 6.3 — Disagreement preservation tests
+  - Curated fixture set where roles genuinely disagree (e.g. escalation
+    urgency); assert the draft contains the Disagreement with per-role
+    positions and never smooths it into a confident sentence.
+  Files: tests/unit/test_director.py + fixtures.
+  Exit: curated disagreement cases pass deterministically under fakes.
+  PHASE 6 EXIT: DirectorDraft contract satisfied end-to-end under fakes.
+
+
+================================================================================
+PHASE 7 — DETERMINISTIC VERIFIER
+Exit: all check types unit-tested; seeded-fault recall measured.
+================================================================================
+
+Section 7.1 — Lexicon + tolerance config
+  - `verify/lexicon.py`: forbidden phrases (definitive diagnosis), dose patterns
+    `\d+\s?(mg|mcg|%)`, stage/severity rule — single source reused by output
+    rail later.
+  - configs/thresholds.yaml: per-fact numeric tolerances, stray-number
+    whitelist classes (dates, follow-up intervals, age).
+  Files: src/consilium/verify/lexicon.py, configs/thresholds.yaml.
+  Exit: lexicon unit tests incl. benign near-misses ("2–4 months").
+
+Section 7.2 — Check implementations
+  - `verify/deterministic.py` pure functions (draft, global_ctx, cfg) ->
+    list[Issue]: check_references (BAD_REFERENCE), check_numerics
+    (NUMERIC_MISMATCH, per-fact tolerance), check_stray_numbers (UNSUPPORTED),
+    check_coverage (OMITTED_FINDING: laterality/tier/vertical-CDR claims +
+    every caveat in limitations), check_language (UNSAFE_LANGUAGE),
+    check_disagreement_preservation (DISAGREEMENT_SUPPRESSED, configured polar
+    topics), check_role_scope (OUT_OF_SCOPE).
+  Files: src/consilium/verify/deterministic.py.
+  Exit: each check implemented as pure function, config-driven.
+
+Section 7.3 — Verifier tests + seeded-fault recall
+  - `tests/unit/test_verifier.py`: positive/negative/boundary per check
+    (exactly-at-tolerance case mandatory).
+  - First pass of eval/fault_injection.py mutations (numeric gross+subtle,
+    fabricated finding with/without ref, deleted mandatory finding, dose/
+    diagnosis insertion, laterality flip, suppressed disagreement) measured
+    against the deterministic layer only.
+  Files: tests/unit/test_verifier.py, src/consilium/eval/fault_injection.py.
+  Exit: per-fault-class recall table for the deterministic layer stored;
+        clean-draft false-rejection rate measured.
+  PHASE 7 EXIT: verifier proven exact on unit tests and fault corpus.
+
+
+================================================================================
+PHASE 8 — LLM CRITIC + MERGE + LOOP
+Exit: fault-injection report per layer; UNVERIFIED contract defined.
+================================================================================
+
+Section 8.1 — Critic prompt + agent
+  - prompts/critic/v1.md: claim-vs-facts entailment audit; input = claims +
+    GlobalContext facts ONLY (never specialist prose, never director reasoning);
+    note facts = evidence of what the clinician wrote.
+  - `agents/critic_agent.py` + `verify/critic.py`: runs on LLM_MODEL_CRITIC —
+    different snapshot or at minimum temperature 0 vs director (config, one
+    line); output CriticVerdict.
+  Files: prompts/critic/v1.md, src/consilium/agents/critic_agent.py,
+         src/consilium/verify/critic.py.
+  Exit: critic unit tests with FakeLLMClient; config test asserting critic
+        model/setting differs from director.
+
+Section 8.2 — Merge + bounded loop logic
+  - `verify/merge.py`: approved ⇔ no deterministic issues AND critic approved;
+    merged issues carry raised_by; deterministic runs FIRST (cheap failures
+    never burn critic tokens).
+  - Loop counters (round, revision) live in state; CRITIC_MAX_ROUNDS from
+    config (default 3).
+  Files: src/consilium/verify/merge.py.
+  Exit: merge unit tests (det-reject, critic-reject, both-pass, order proven).
+
+Section 8.3 — UNVERIFIED draft contract
+  - Loop exhaustion → NEEDS_ATTENTION: drafts.unverified=true, open_issues
+    attached, draft never auto-approved, never silently dropped; disagreement
+    entries alone NEVER trigger NEEDS_ATTENTION.
+  - API-surface shape for the banner defined here (implemented in P11).
+  Files: src/consilium/verify/merge.py, schemas touchpoints.
+  Exit: contract tests: exhausted loop yields flagged draft with issues;
+        disagreement-only drafts do NOT flag.
+
+Section 8.4 — Full fault-injection report
+  - eval/fault_injection.py complete: known-good draft corpus (verifier-
+    approved + human-spot-checked), programmatic seeded mutations, three
+    configurations (deterministic only / LLM only / both, production order),
+    per-class recall + clean-draft false-rejection with CIs; stored as eval
+    run ID.
+  Files: src/consilium/eval/fault_injection.py, eval run artifacts.
+  Exit: per-layer per-fault-class table stored under a run ID; misses
+        inspected and documented.
+  PHASE 8 EXIT: two-layer audit measured, not assumed.
+
+
+================================================================================
+PHASE 9 — GRAPH ORCHESTRATION + PERSISTENCE
+Exit: every failure edge integration-tested; crash-resume proven.
+================================================================================
+
+Section 9.1 — Persistence layer
+  - `persistence/models.py`: SQLAlchemy models per ARCHITECTURE.md §5.12 DDL
+    (cases, clinical_notes, cad_results, vision_calls, routed_contexts,
+    agent_runs, drafts, verdicts, reviews, audit_log, jobs).
+  - Alembic init + first migration: append-only privilege revocations on
+    audit_log/verdicts/reviews; indexes; column-level encryption helper for
+    raw_redacted_text_enc.
+  - `persistence/repositories.py`: one repo per aggregate; transition()
+    writes (status, state patch, audit event) in ONE transaction.
+  Files: src/consilium/persistence/*, alembic/.
+  Exit: migration up/down tests; append-only enforcement test; transition
+        atomicity test.
+
+Section 9.2 — State, nodes, edges
+  - `graph/state.py` CaseState (§5.3); `graph/nodes.py` all 12 nodes (logic in
+    ordinary modules — nodes stay thin); `graph/edges.py` plain conditional
+    functions; `graph/deps.py` Deps dataclass + builders (prod vs fake).
+  Files: src/consilium/graph/*.
+  Exit: node/edge unit tests without running the graph.
+
+Section 9.3 — Graph build + persistence-per-node + resume
+  - `graph/build.py`: compile StateGraph (LangGraph checkpointer unused);
+    every node persists on exit; idempotency guards (cad_results exists →
+    skip vision; clinical_notes exists → skip extraction); crash-resume
+    re-enters at last_node's successor.
+  Files: src/consilium/graph/build.py, nodes.py.
+  Exit: crash-resume integration test (kill mid-pipeline, restart, completes
+        without recomputation).
+
+Section 9.4 — Failure-edge integration suite
+  - tests/integration/: happy path; specialist failure after retries → FAILED;
+    critic reject→revise→approve; loop exhaustion → NEEDS_ATTENTION with
+    UNVERIFIED contract asserted; vision cold-start retry; revision-pin
+    mismatch → FAILED; bad image → REJECTED_INPUT; idempotent re-entry.
+  Files: tests/integration/test_graph_*.py.
+  Exit: full matrix from ARCHITECTURE.md §10 green offline (fake LLM + fake
+        vision + real Postgres via test container/local).
+  PHASE 9 EXIT: the state machine survives crashes and fails closed everywhere.
+
+
+================================================================================
+PHASE 10 — GUARDRAILS (NeMo)
+Exit: adversarial suite green; rail events audited.
+================================================================================
+
+Section 10.1 — Deterministic input checks
+  - `guardrails/input_checks.py`: length cap, charset allowlist, PHI patterns
+    (shared config with de-identification), injection lexicon — running BEFORE
+    de-identification/extraction, wired into the extract_note node.
+  Files: src/consilium/guardrails/input_checks.py,
+         configs/guardrails/policies/*.
+  Exit: unit tests; trigger → REJECTED_INPUT + audit event.
+
+Section 10.2 — NeMo wiring
+  - `configs/guardrails/config.yml` + rails/input_note.co +
+    rails/output_draft.co (model-needed injection detection only; no dialog/
+    topic/retrieval rails; NOTHING in front of vision).
+  - `guardrails/nemo_wiring.py`: RailsConfig init, timing, metrics
+    (rail latency, trigger counts), documented gap list per rule.
+  Files: configs/guardrails/*, src/consilium/guardrails/nemo_wiring.py.
+  Exit: rails fire on fixture triggers; metrics emitted; latency p50/p95
+        recorded.
+
+Section 10.3 — Output checks
+  - `guardrails/output_checks.py`: forbidden-language + dose patterns (reusing
+    verify/lexicon.py — single source), PHI-echo scan, mandatory disclaimer
+    presence; wired into the output_rail node; trigger → NEEDS_ATTENTION +
+    audit event.
+  Files: src/consilium/guardrails/output_checks.py.
+  Exit: unit tests; no duplicated lexicon (import from verify/).
+
+Section 10.4 — Adversarial rail suite
+  - tests/adversarial/: ≥5 positive + ≥5 benign near-misses per rule, with
+    obfuscations (unicode homoglyphs, spacing, mixed case, multilingual);
+    definitive-diagnosis bait, dose bait, PHI-echo bait.
+  Files: tests/adversarial/test_rails_*.py.
+  Exit: suite green; benign near-misses do NOT trigger.
+  PHASE 10 EXIT: rails enforce content policy without touching shape/values.
+
+
+================================================================================
+PHASE 11 — API + AUTH + REVIEW SERVICE
+Exit: e2e submit → draft → review → approved report with audit trail.
+================================================================================
+
+Section 11.1 — FastAPI app + auth
+  - `api/main.py` create_app(deps) per §5.2 (build_prod_deps the ONLY real-
+    client construction site); RFC 7807 problem+json handler; OTel middleware.
+  - `api/auth.py`: JWT bearer (HS256 dev, OIDC-ready); submitter/clinician
+    roles; require_clinician guard.
+  Files: src/consilium/api/*.
+  Exit: auth tests (role enforcement, bad token); problem+json never leaks
+        stack traces or user content.
+
+Section 11.2 — Cases endpoints + job queue
+  - `api/routes/cases.py`: POST /v1/cases (multipart, Idempotency-Key, filename
+    never logged/stored — content hash only), GET case, GET draft (with
+    open_issues + unverified + evidence map), GET overlay (server-rendered PNG,
+    cached by content hash), GET report (APPROVED* only, attribution).
+  - `jobs/queue.py` + `jobs/worker.py`: jobs table, SELECT … FOR UPDATE SKIP
+    LOCKED claim loop, 202 + enqueue on submit.
+  Files: src/consilium/api/routes/cases.py, src/consilium/jobs/*.
+  Exit: idempotency test; overlay render test; report gating test; worker
+        picks up and completes a case.
+
+Section 11.3 — Review service
+  - `review/service.py`: APPROVE / APPROVE_WITH_EDITS / REJECT — the ONLY
+    writer of APPROVED*; identity from auth context; no self-approval;
+    reason codes mandatory for edits/rejects (OTHER requires text);
+    UNVERIFIED block (every stored issue must be resolved by the edit set,
+    checked server-side); approved reports immutable (amendments = new
+    linked version).
+  - `review/diff.py` field-level diff (store both sides); `review/reason_codes.py`
+    closed taxonomy; `review/feedback.py` FeedbackStore (Postgres writer, V2
+    retrieval seam as no-op); `review/analytics.py` reason-code share query.
+  Files: src/consilium/review/*.
+  Exit: per-action tests; self-approval refused; unverified-approval blocked;
+        diff round-trip; analytics query runs on fixtures.
+
+Section 11.4 — E2E
+  - tests/e2e/: synthetic image + synthetic note → POST → worker →
+    PENDING_REVIEW (recorded LLM + fake vision HTTP service) → overlay fetch →
+    review action → approved report with full audit trail; UNVERIFIED banner
+    data present on loop-exhausted case.
+  Files: tests/e2e/*.
+  Exit: e2e green offline against the compose stack.
+  PHASE 11 EXIT: the vertical slice works: submit → process → review → report.
+
+
+================================================================================
+PHASE 12 — REACT REVIEW UI
+Exit: clinician completes a full review workflow against the dev stack.
+================================================================================
+
+Section 12.1 — Scaffold + auth + case list
+  - Vite + React + TypeScript app; typed api/client.ts (202, problem+json);
+    login (token in memory, not localStorage); /cases list with status badges
+    and queue filters; /cases/:id detail (CAD summary, note facts, timeline).
+  Files: frontend/src/*.
+  Exit: list + detail render against the dev API.
+
+Section 12.2 — Review screen: draft + issues + banner
+  - /cases/:id/review: DraftView (claims as blocks with evidence chips from the
+    evidence map), unresolved critic issues as inline red highlights keyed by
+    claim_id, UNVERIFIED banner (red, prominent) when unverified, disagreements
+    rendered visibly.
+  Files: frontend/src/pages/ReviewScreen/*, components/DraftView/*.
+  Exit: renders verified + unverified drafts correctly against fixtures.
+
+Section 12.3 — Mask overlay viewer + edit-diff form
+  - MaskOverlayViewer: server-rendered overlay PNG, disc/cup toggles, opacity
+    slider (no client-side mask math).
+  - EditDiffForm: field-level editing of impression/claims/recommendations/
+    limitations; client diff for UX, submits full edited draft + base_revision;
+    ReasonCodePicker (multi-select, required, OTHER→text).
+  Files: frontend/src/components/{MaskOverlayViewer,EditDiffForm,ReasonCodePicker}.
+  Exit: edit-and-diff flow submits; server accepts/rejects per review rules.
+
+Section 12.4 — Full workflow validation
+  - Clinician walkthrough on dev stack: list → open case → inspect overlay →
+    edit → reason codes → approve-with-edits → view approved report; reject
+    path; unverified-draft fix-and-approve path.
+  Exit: workflow completed end-to-end without touching the DB by hand;
+        no status logic anywhere in the frontend (checked by review).
+  PHASE 12 EXIT: the product is usable by a clinician on the dev stack.
+
+
+================================================================================
+PHASE 13 — EVALUATION
+Exit: stored S1–S4 ablation run with CIs; README/paper numbers from stored runs.
+================================================================================
+
+Section 13.1 — Eval harness foundation
+  - `eval/datasets.py` (frozen case manifest, versioned), `eval/fixtures.py`
+    (recorded CADResults held constant across stages), `eval/runners.py`
+    (stage runner with ≥3 samples/case, seed control), run store (git SHA,
+    config hashes, model/prompt versions, dataset version, seed, run ID).
+  Files: src/consilium/eval/{datasets,fixtures,runners}.py.
+  Exit: `make eval-smoke` runs S1–S4 on a tiny fixed set offline.
+
+Section 13.2 — Metrics + ablation
+  - `eval/diversity.py`: S_inter (fixed eval-only embedding model, name+version
+    recorded; similarity-vs-distance chosen once) + unique-fact coverage.
+  - `eval/metrics.py`: unsupported-claim rate, omission rate, minority-opinion
+    preservation, rounds-to-approval, latency p50/p95, tokens/cost.
+  - `eval/ablation.py`: S1/S2/S3/S4 on identical cases; bootstrap 95% CIs;
+    per-case paired differences.
+  Files: src/consilium/eval/{diversity,metrics,ablation}.py.
+  Exit: smoke ablation produces a stored run with CIs.
+
+Section 13.3 — Critic evaluation + clinician rubric
+  - Fault-injection as an eval stage (from P8) integrated into the run store.
+  - `eval/judge.py` + rubric tooling: clinician rubric subset (accuracy,
+    completeness, safety, usefulness); LLM-judge optional, validated against
+    clinician scores on the same subset, judge model documented.
+  Files: src/consilium/eval/judge.py.
+  Exit: fault-injection table in the stored run; rubric pipeline dry-run.
+
+Section 13.4 — Full run + report generation
+  - `eval/report.py`: tables/figures generated FROM the stored run only (I-11).
+  - `make eval-full`: full frozen set, live LLM + dev endpoint; run stored.
+  - README "Differences from the paper" section (CDR formula, real numbers,
+    similarity-vs-distance choice); negative results reported honestly.
+  Files: src/consilium/eval/report.py, README.md updates.
+  Exit: stored full run ID; every README/paper number traceable to a run.
+  PHASE 13 EXIT: the paper's claims are now measured claims.
+
+
+================================================================================
+PHASE 14 — HARDENING & RELEASE
+Exit: runbook, dashboards, DR rehearsal, threat model; release checklist done.
+================================================================================
+
+Section 14.1 — Observability dashboards + alerts + runbook
+  - `observability/`: OTel traces per case (no bodies default), Prometheus
+    metrics per §5.13, Langfuse self-hosted wiring + annotations.
+  - Alert rules with README-documented thresholds (vision failure spike,
+    cold-start spike, critic round-1-approval ≈100%, NEEDS_ATTENTION drift,
+    review backlog); runbook entries per alert (ARCHITECTURE.md §14).
+  Files: src/consilium/observability/*, README runbook section.
+  Exit: dashboards live on the dev stack; each alert has a runbook action.
+
+Section 14.2 — Security review + retention + PHI sweep
+  - Threat-model doc; dependency audit + secret scan in CI; auth role tests.
+  - `phi-review` skill across the whole repo (logs, traces, fixtures, exports,
+    upload filenames, endpoint privacy/terms re-check).
+  - `scripts/retention.py`: retention/erasure job with tests (right-to-erasure
+    path) covering every table + object-store prefix.
+  Files: docs/threat_model.md, scripts/retention.py.
+  Exit: scanners clean; erasure job deletes a fixture case completely (test).
+
+Section 14.3 — Load test + DR rehearsal
+  - Load test against the dev stack at the agreed target; record p50/p95 per
+    stage; cost-per-case under load.
+  - Backup/restore rehearsal: Postgres dump + object store restore on a fresh
+    stack; document RTO/RPO.
+  Files: scripts/load_test.py, docs/dr.md.
+  Exit: load target met or gap documented; restore rehearsal completed once.
+
+Section 14.4 — Release checklist
+  - Run `release-checklist` skill end-to-end: make ci on clean checkout,
+    test-live results, artifact hashes + revision pin verified, prompt pins,
+    ablation run linked, migrations tested, providers' data terms recorded in
+    README, screening-support wording audit, rollback plan.
+  - Every remaining `# CLINICAL-REVIEW:` marker either reviewed (named
+    reviewer + date) or listed as accepted risk with an owner.
+  Files: release PR, README.md final pass.
+  Exit: checklist signed off item by item; unresolved items explicitly
+        accepted by a named human.
+  PHASE 14 EXIT: CONSILIUM V1 is releasable.
+
+
+================================================================================
+WORKING AGREEMENT
+- We implement ONE section at a time, in order. You say which section to start.
+- After each section I report: what changed, what was verified and how, what
+  was NOT verified, and any CLINICAL-REVIEW items.
+- If a section's exit check fails, we fix it before moving on — no rushing.
+================================================================================
