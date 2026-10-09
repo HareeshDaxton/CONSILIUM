@@ -290,6 +290,67 @@ GET /healthz placeholder responds.
 
 ---
 
+### Section 0.5 — Test harness baseline ✅ DONE
+
+**Goal (from implementation plan):** pytest config + shared conftest fixtures
+(fake clock, fake idgen, tmp object store); committed synthetic-fixture
+generator; exit = a sample unit test + a sample integration test pass under
+`make test`.
+
+**What was done — files created**
+- `tests/conftest.py` — shared fixtures: `fake_clock` (pinned 2025-01-01 UTC),
+  `fake_id_gen` (deterministic sequence), `object_store_dir` (tmp-path local-FS
+  store), `settings` (Settings with synthetic required values, no .env),
+  `fixtures_dir` path. Header documents the offline + synthetic-only rules.
+- `scripts/make_fixtures.py` — the canonical synthetic-fixture generator
+  (deterministic, no timestamps/randomness → byte-identical regeneration).
+  Emits `tests/fixtures/synthetic_notes.json` (4 notes: routine referral with
+  typed values, vague-pressure anti-over-extraction case, injection-attempt
+  adversarial case, minimal-content case) + `tests/fixtures/PROVENANCE.md`
+  (SKILLS.md appendix provenance statement).
+- `tests/unit/test_harness.py` — sample unit tests exercising every conftest
+  fixture + asserting the fixtures P3 depends on exist (vague note, injection
+  note, provenance file).
+- `tests/integration/test_core_wiring.py` — sample integration test: Settings
+  + JsonFormatter + VisionFailure wire together across module boundaries; the
+  fail-closed status mapping survives into the emitted JSON log.
+- Generated artifacts committed: `tests/fixtures/synthetic_notes.json`,
+  `tests/fixtures/PROVENANCE.md`.
+
+**Key decisions & reasons**
+- Synthetic image fixtures are NOT generated here — they need the vision
+  quality-gate conventions from P2; the generator says so and P2 extends it.
+- Adversarial fixtures live in the same generator (injection note) so P3/P10
+  suites share one provenance chain.
+- Integration test is offline by construction; real DB/graph integration
+  arrives in P9 — the suite directory is now established and collecting.
+
+**Verified (commands run)**
+- `uv run python scripts/make_fixtures.py` → wrote 4 notes + provenance.
+- `uv run pytest -m "not live"` → **54 passed** (48 prior + 5 unit + 1
+  integration); coverage 97% total.
+- ruff check + format → clean; mypy --strict → clean (25 files);
+  lint-imports → 7/7 kept.
+
+**Deferred / not verified**
+- `make test` itself not run (no make binary on this machine) — the identical
+  `uv run pytest -m "not live"` command was verified instead.
+- Live suite (`-m live`) still has no tests; first live tests arrive in P3/P5.
+
+**CLINICAL-REVIEW items:** none.
+
+---
+
+## ✅ PHASE 0 COMPLETE — exit criterion met
+
+`make ci` equivalent (lint + typecheck + imports + offline tests +
+schema-check stub) is green on the skeleton: ruff clean, mypy --strict clean
+(25 files), import-linter 7/7 contracts kept, 54 tests passed, compose stack
+verified live (5 services healthy, /healthz responding). Ready for Phase 1 —
+schemas (Section 1.1 next, on your go-ahead).
+
+---
+
 ## Log template (copy for each new section)
 
 ### Section X.Y — <name> ✅ DONE / 🚧 IN PROGRESS
