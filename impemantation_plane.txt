@@ -339,6 +339,7 @@ Section 6.3 — Disagreement preservation tests
     positions and never smooths it into a confident sentence.
   Files: tests/unit/test_director.py + fixtures.
   Exit: curated disagreement cases pass deterministically under fakes.
+  
   PHASE 6 EXIT: DirectorDraft contract satisfied end-to-end under fakes.
 
 
