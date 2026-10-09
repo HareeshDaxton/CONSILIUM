@@ -1,27 +1,40 @@
 ================================================================================
-PER-FILE COMMIT MESSAGES — Phase 0, Section 0.3
+PER-FILE COMMIT MESSAGES — Phase 0, Section 0.4
 Format: <file>  ->  <commit message>
 ================================================================================
 
-Makefile                          build(make): add the AGENTS.md §26 command surface with honest phase-gated stubs
+Dockerfile                        build(docker): add slim CPU runtime image with cached uv layers (no torch, I-13)
 
-importlinter.ini                  build(imports): add the §4.2 module-boundary contracts for import-linter
+.dockerignore                     build(docker): keep the runtime image free of tests, docs and local artifacts
 
-.github/workflows/ci.yml          ci(github): add the merge-blocking pipeline (ruff, mypy, import-linter, offline tests, schema-check)
+docker-compose.yml                build(compose): add the dev stack (api, worker, postgres, minio, fake-vision)
 
-Kimi.md                           docs(memory): log section 0.3 completion in project memory
+.env.example                      build(env): document every ARCHITECTURE.md §8 variable with dev-safe defaults
 
-commit_doc.txt                    docs(commit): refresh commit messages for section 0.3
+src/consilium/api/main.py         feat(api): add /healthz placeholder app until Phase 11 builds the real one
+
+scripts/worker_placeholder.py     feat(worker): add heartbeat placeholder until the Phase 9/11 job worker lands
+
+scripts/fake_vision_server.py     feat(vision): add fake vision HTTP stub for the local stack (real canned modes in Phase 2)
+
+Makefile                          build(make): wire up/down to docker compose
+
+Kimi.md                           docs(memory): log section 0.4 completion in project memory
+
+commit_doc.txt                    docs(commit): refresh commit messages for section 0.4
 
 
 ================================================================================
 SUGGESTED GROUPING (fewer commits, same result)
 ================================================================================
 
-git add Makefile importlinter.ini .github/workflows/ci.yml
-git commit -m "build(ci): add Makefile, import-linter boundary contracts and the GitHub Actions gate (Phase 0, Section 0.3)"
+git add Dockerfile .dockerignore docker-compose.yml .env.example Makefile
+git commit -m "build(stack): add runtime image and dev compose stack with minio/postgres/fake-vision (Phase 0, Section 0.4)"
+
+git add src/consilium/api/main.py scripts/worker_placeholder.py scripts/fake_vision_server.py
+git commit -m "feat(stack): add api/worker/fake-vision placeholders for the compose topology"
 
 git add Kimi.md commit_doc.txt
-git commit -m "docs: update project memory and commit notes for section 0.3"
+git commit -m "docs: update project memory and commit notes for section 0.4"
 
 git push
