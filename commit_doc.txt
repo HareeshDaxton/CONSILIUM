@@ -1,54 +1,73 @@
 ================================================================================
-PER-FILE COMMIT MESSAGES — Phase 1, Sections 1.1 + 1.2
+PER-FILE COMMIT MESSAGES — Phase 1, Sections 1.3 + 1.4 + 1.5 (PHASE 1 COMPLETE)
 Format: <file>  ->  <commit message>
 ================================================================================
 
-src/consilium/schemas/base.py        feat(schemas): add the Strict base model (strict, forbid-extra, frozen) per AGENTS.md §7
+--- Section 1.3 (note + context contracts) ---
 
-src/consilium/schemas/enums.py       feat(schemas): add shared StrEnums including the §4 CaseStatus state machine
+src/consilium/schemas/note.py          feat(schemas): add ClinicalNote and NoteExtraction contracts with untrusted-text caps
 
-src/consilium/schemas/vision.py      feat(schemas): add vision contracts (CADResult, RawVisionOutput wire format)
+src/consilium/schemas/context.py       feat(schemas): add Fact, GlobalContext and RoleContext with unique-ID invariants
 
-src/consilium/schemas/__init__.py    feat(schemas): re-export base, enums and vision contracts from the package root
+tests/unit/test_schemas_note_context.py    test(schemas): cover note bounds, extraction provenance, fact unions and context uniqueness
 
-tests/unit/test_schemas_base_enums.py    test(schemas): cover strictness, frozen models, enum value sets and CaseStatus↔errors alignment
+--- Section 1.4 (agent output + audit contracts) ---
 
-tests/unit/test_schemas_vision.py    test(schemas): cover vision contract bounds, defaults, round-trips and pin-check placement
+src/consilium/schemas/agents.py        feat(schemas): add specialist and director contracts with NUMERIC-claim and disagreement rules
 
-Kimi.md                              docs(memory): log sections 1.1 and 1.2 in project memory
+src/consilium/schemas/audit.py         feat(schemas): add Issue and CriticVerdict with the approved-iff-no-issues validator
 
-commit_doc.txt                       docs(commit): refresh commit messages for sections 1.1 + 1.2
+tests/unit/test_schemas_agents_audit.py    test(schemas): cover claim requirements, draft invariants and verdict consistency
+
+--- Section 1.5 (fact IDs + snapshots) ---
+
+src/consilium/context/facts.py         feat(context): add the F fact-ID constants as the single source of truth (ARCHITECTURE.md §5.6)
+
+scripts/schema_snapshot.py             feat(contract): add JSON-Schema snapshot dump/check tooling derived from schemas.__all__
+
+tests/contract/snapshots/              test(contract): commit JSON-Schema snapshots for all 21 contract models (21 files)
+
+tests/contract/test_schema_snapshots.py    test(contract): fail CI on schema snapshot drift via the shared check script
+
+tests/unit/test_facts.py               test(context): pin every fact-ID constant to the §5.6 spec
+
+Makefile                               build(make): make schema-check a real gate and add the schema-snapshot target
+
+src/consilium/schemas/__init__.py      feat(schemas): re-export all contract models from the package root
+
+--- housekeeping ---
+
+impemantation_plane.txt                docs(plan): mark sections 1.3-1.5 complete in the implementation plan
+
+Kimi.md                                docs(memory): log sections 1.3-1.5 and phase 1 completion in project memory
+
+commit_doc.txt                         docs(commit): refresh commit messages for sections 1.3 + 1.4 + 1.5
 
 
 ================================================================================
 SUGGESTED GROUPING (fewer commits, same result)
 ================================================================================
 
-# Option A — one commit per section:
+git add src/consilium/schemas/note.py src/consilium/schemas/context.py tests/unit/test_schemas_note_context.py
+git commit -m "feat(schemas): add note and context contracts with unique-ID invariants (Phase 1, Section 1.3)"
 
-git add src/consilium/schemas/base.py src/consilium/schemas/enums.py tests/unit/test_schemas_base_enums.py
-git commit -m "feat(schemas): add Strict base and shared enums with CaseStatus (Phase 1, Section 1.1)"
+git add src/consilium/schemas/agents.py src/consilium/schemas/audit.py tests/unit/test_schemas_agents_audit.py
+git commit -m "feat(schemas): add agent output and audit contracts (Phase 1, Section 1.4)"
 
-git add src/consilium/schemas/vision.py src/consilium/schemas/__init__.py tests/unit/test_schemas_vision.py
-git commit -m "feat(schemas): add vision contracts CADResult and RawVisionOutput (Phase 1, Section 1.2)"
+git add src/consilium/context/facts.py scripts/schema_snapshot.py tests/contract tests/unit/test_facts.py Makefile src/consilium/schemas/__init__.py
+git commit -m "feat(contract): add fact-ID constants and JSON-Schema snapshot gate (Phase 1, Section 1.5)"
 
-git add Kimi.md commit_doc.txt
-git commit -m "docs: log sections 1.1 + 1.2 and refresh commit messages"
-
-# Option B — single commit for both sections:
-
-git add src/consilium/schemas tests/unit/test_schemas_base_enums.py tests/unit/test_schemas_vision.py
-git commit -m "feat(schemas): add Strict base, shared enums and vision contracts (Phase 1, Sections 1.1 + 1.2)"
-
-git add Kimi.md commit_doc.txt
-git commit -m "docs: log sections 1.1 + 1.2 and refresh commit messages"
+git add impemantation_plane.txt Kimi.md commit_doc.txt
+git commit -m "docs: log phase 1 completion, plan status and commit messages"
 
 
 ================================================================================
 VERIFICATION STATE AT TIME OF WRITING
 ================================================================================
-pytest -m "not live"  -> 90 passed (54 prior + 36 new)
-ruff check + format   -> clean (40 files)
-mypy --strict src/    -> clean (28 source files)
-import-linter         -> 7/7 contracts kept
+pytest -m "not live"    -> 137 passed (90 prior + 47 new)
+ruff check + format     -> clean (50 files)
+mypy --strict src/      -> clean (33 source files)
+import-linter           -> 7/7 contracts kept
+schema_snapshot --check -> up to date (21 models)
+drift probe             -> deliberate field change FAILED the check (exit 1), reverted green
 ================================================================================
