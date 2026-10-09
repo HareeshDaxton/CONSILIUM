@@ -5,7 +5,7 @@ section of `impemantation_plane.txt`. Each entry records in detail: what was
 done (files, key decisions), what was verified and how (exact commands), what
 was deferred or not verified, and any CLINICAL-REVIEW items.
 
-Current position: **Phase 0 — Sections 0.1, 0.2 done. Next: Section 0.3 (awaiting go-ahead).**
+Current position: **Phase 0 — Sections 0.1, 0.2, 0.3 done. Next: Section 0.4 (awaiting go-ahead).**
 
 ---
 
@@ -148,6 +148,67 @@ Exit: unit tests for settings parsing + error mapping; logging emits JSON.
   (P11). No .env.example yet (Section 0.4).
 - Logging redaction is key-based, not value-based; a PHI value under a
   non-denied key would pass — noted for the phi-review skill at release.
+
+**CLINICAL-REVIEW items:** none.
+
+---
+
+### Section 0.3 — CI gates & Makefile ✅ DONE
+
+**Goal (from implementation plan):** Makefile with the AGENTS.md §26 targets;
+GitHub Actions CI (ruff → mypy --strict → import-linter → pytest →
+schema-snapshot check → coverage); importlinter.ini with the §4.2 boundary
+contracts. Exit: `make ci` green on skeleton; a deliberate boundary violation
+fails CI.
+
+**What was done — files created**
+- `Makefile` — all §26 targets: setup, lint, typecheck, imports, test,
+  test-live, ci, schema-check, eval-smoke, eval-full, migrate, serve, up, down.
+  All Python tooling via `uv run` (same locally and in CI). Targets whose phase
+  hasn't arrived (eval-*, migrate, serve, up/down) print a clear "not
+  implemented until Phase X" and exit 1 — honest, never silently green.
+  `ci` = lint + typecheck + imports + test + schema-check.
+- `importlinter.ini` — 7 forbidden-type contracts implementing ARCHITECTURE.md
+  §4.2: schemas-independent; vision-isolated (no llm/agents/graph/intake);
+  intake-boundary; context-deterministic (I-2); agents-no-cad (I-1);
+  openai-only-in-llm; db-only-in-persistence (sqlalchemy + alembic).
+  `include_external_packages = True` (required for external forbidden modules).
+- `.github/workflows/ci.yml` — merge-blocking pipeline on ubuntu-latest with
+  astral-sh/setup-uv: uv sync → ruff check + format → mypy → lint-imports →
+  pytest -m "not live" → make schema-check. No live tests in CI, ever.
+
+**Key decisions & reasons**
+- `lint-imports --config importlinter.ini`: this import-linter version does
+  NOT auto-discover `importlinter.ini`; the flag is in Makefile + CI.
+- Pre-authorized wildcard `ignore_imports` (for llm→openai etc.) were REMOVED:
+  the installed version warns-and-fails on unmatched ignores even with
+  `unmatched_ignore_imports_alerting = none`. Instead the ini carries a comment
+  telling P3 (llm) and P9 (persistence) exactly which ignore lines to add when
+  those modules land. Contracts currently forbid openai/sqlalchemy everywhere.
+- `schema-check` target degrades gracefully: if scripts/schema_snapshot.py
+  doesn't exist yet (P1, Section 1.5) it prints "skipping" and exits 0 — so the
+  CI pipeline SHAPE is complete now, and the check hardens automatically in P1.
+- Coverage floor stays 0 on the skeleton (raise-only policy noted in
+  pyproject); pytest addopts already enforce `--cov-fail-under`.
+
+**Verified (commands run — `make` itself is NOT installed on this Windows
+machine, so each target's exact command was run directly via `uv run`)**
+- `uv run ruff check src tests scripts` → clean; `ruff format --check` → clean.
+- `uv run mypy` → no issues (24 files, strict).
+- `uv run lint-imports --config importlinter.ini` → **7 kept, 0 broken**
+  (32 files, 14 dependencies analyzed).
+- Deliberate violation probe (temp file in consilium/vision importing
+  consilium.llm and openai): contracts **BROKEN, exit 1** — then probe removed
+  and contracts KEPT again. CI can catch boundary erosion.
+- `uv run pytest -m "not live"` → 48 passed.
+- schema-check branch → prints skip message (as designed pre-P1).
+
+**Deferred / not verified**
+- The GitHub Actions workflow is written but NOT executed (no push yet; needs
+  the repo on GitHub). Watch the first CI run.
+- `make` binary absent on this machine — user should install make
+  (e.g. via chocolatey/scoop) or keep running the `uv run` commands directly.
+- eval-*/migrate/serve/up/down targets are honest stubs until their phases.
 
 **CLINICAL-REVIEW items:** none.
 
