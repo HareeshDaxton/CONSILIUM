@@ -1,0 +1,35 @@
+# Keep the runtime image lean and free of anything not needed to serve.
+
+.git
+.gitignore
+.venv
+**/__pycache__
+**/*.pyc
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+htmlcov
+
+# Local data & artifacts (DVC pointers only in git)
+data/
+
+# Not needed in the image
+tests/
+doc/
+frontend/node_modules/
+frontend/dist/
+.github/
+*.md
+!README.md
+.env
+.env.*
+!.env.example
+commit_doc.txt
+impemantation_plane.txt
+Kimi.md
+Makefile
+importlinter.ini
+docker-compose.yml
+Dockerfile
+.dockerignore
