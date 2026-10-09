@@ -44,8 +44,8 @@ migrate:        ## Alembic migrations (Phase 9)
 serve:          ## API dev server (Phase 11)
 	@echo "serve: not implemented until Phase 11" && exit 1
 
-up:             ## docker compose stack: api, worker, postgres, minio, fake-vision (Section 0.4)
-	@echo "up: not implemented until Section 0.4" && exit 1
+up:             ## docker compose stack: api, worker, postgres, minio, fake-vision
+	docker compose up -d --build
 
-down:           ## tear down the compose stack (Section 0.4)
-	@echo "down: not implemented until Section 0.4" && exit 1
+down:           ## tear down the compose stack (volumes kept; use `docker compose down -v` to wipe)
+	docker compose down
