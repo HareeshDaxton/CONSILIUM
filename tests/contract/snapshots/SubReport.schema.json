@@ -1,0 +1,125 @@
+{
+  "$defs": {
+    "Confidence": {
+      "enum": [
+        "low",
+        "moderate",
+        "high"
+      ],
+      "title": "Confidence",
+      "type": "string"
+    },
+    "Finding": {
+      "additionalProperties": false,
+      "properties": {
+        "text": {
+          "maxLength": 600,
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        },
+        "evidence_refs": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "confidence": {
+          "$ref": "#/$defs/Confidence"
+        }
+      },
+      "required": [
+        "text",
+        "evidence_refs",
+        "confidence"
+      ],
+      "title": "Finding",
+      "type": "object"
+    },
+    "Recommendation": {
+      "additionalProperties": false,
+      "properties": {
+        "text": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        },
+        "triggered_by": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Triggered By",
+          "type": "array"
+        },
+        "basis": {
+          "default": "model_knowledge",
+          "title": "Basis",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text",
+        "triggered_by"
+      ],
+      "title": "Recommendation",
+      "type": "object"
+    },
+    "Role": {
+      "enum": [
+        "ophthalmologist",
+        "optometrist",
+        "pharmacist"
+      ],
+      "title": "Role",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "One specialist's structured output (never free text, I-8).",
+  "properties": {
+    "role": {
+      "$ref": "#/$defs/Role"
+    },
+    "findings": {
+      "items": {
+        "$ref": "#/$defs/Finding"
+      },
+      "title": "Findings",
+      "type": "array"
+    },
+    "recommendations": {
+      "items": {
+        "$ref": "#/$defs/Recommendation"
+      },
+      "title": "Recommendations",
+      "type": "array"
+    },
+    "uncertainties": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Uncertainties",
+      "type": "array"
+    },
+    "declined_out_of_scope": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Declined Out Of Scope",
+      "type": "array"
+    }
+  },
+  "required": [
+    "role",
+    "findings",
+    "recommendations"
+  ],
+  "title": "SubReport",
+  "type": "object"
+}

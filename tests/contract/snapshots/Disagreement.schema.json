@@ -1,0 +1,52 @@
+{
+  "$defs": {
+    "Role": {
+      "enum": [
+        "ophthalmologist",
+        "optometrist",
+        "pharmacist"
+      ],
+      "title": "Role",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "A preserved, visible role disagreement \u2014 a safety feature, not an\naudit failure (\u00a74, \u00a712).",
+  "properties": {
+    "topic": {
+      "minLength": 1,
+      "title": "Topic",
+      "type": "string"
+    },
+    "positions": {
+      "items": {
+        "maxItems": 2,
+        "minItems": 2,
+        "prefixItems": [
+          {
+            "$ref": "#/$defs/Role"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "type": "array"
+      },
+      "minItems": 2,
+      "title": "Positions",
+      "type": "array"
+    },
+    "resolution": {
+      "minLength": 1,
+      "title": "Resolution",
+      "type": "string"
+    }
+  },
+  "required": [
+    "topic",
+    "positions",
+    "resolution"
+  ],
+  "title": "Disagreement",
+  "type": "object"
+}

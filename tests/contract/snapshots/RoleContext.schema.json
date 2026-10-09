@@ -1,0 +1,129 @@
+{
+  "$defs": {
+    "Fact": {
+      "additionalProperties": false,
+      "description": "One typed, citable fact. Every claim in the pipeline cites these by ID.",
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "label": {
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          ],
+          "title": "Value"
+        },
+        "unit": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unit"
+        },
+        "source": {
+          "$ref": "#/$defs/FactSource"
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "value",
+        "source"
+      ],
+      "title": "Fact",
+      "type": "object"
+    },
+    "FactSource": {
+      "enum": [
+        "cad",
+        "note",
+        "derived"
+      ],
+      "title": "FactSource",
+      "type": "string"
+    },
+    "Laterality": {
+      "enum": [
+        "OD",
+        "OS",
+        "UNKNOWN"
+      ],
+      "title": "Laterality",
+      "type": "string"
+    },
+    "Role": {
+      "enum": [
+        "ophthalmologist",
+        "optometrist",
+        "pharmacist"
+      ],
+      "title": "Role",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "C_k \u2014 the allowlist projection a single role is allowed to see (I-2).\n\nThe router emits only allowlisted facts, so ``allowed_ids()`` \u2014 the set\na specialist's ``evidence_refs``/``triggered_by`` must stay within \u2014 is\nexactly the IDs present here. This is the second, independent isolation\nenforcement (the router restricts what the agent sees; output validators\nreject citations outside this set).",
+  "properties": {
+    "role": {
+      "$ref": "#/$defs/Role"
+    },
+    "case_id": {
+      "minLength": 1,
+      "title": "Case Id",
+      "type": "string"
+    },
+    "laterality": {
+      "$ref": "#/$defs/Laterality"
+    },
+    "facts": {
+      "items": {
+        "$ref": "#/$defs/Fact"
+      },
+      "title": "Facts",
+      "type": "array"
+    },
+    "routing_version": {
+      "minLength": 1,
+      "title": "Routing Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "role",
+    "case_id",
+    "laterality",
+    "facts",
+    "routing_version"
+  ],
+  "title": "RoleContext",
+  "type": "object"
+}

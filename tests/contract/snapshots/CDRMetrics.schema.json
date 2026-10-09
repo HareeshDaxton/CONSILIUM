@@ -1,0 +1,29 @@
+{
+  "additionalProperties": false,
+  "description": "Cup-to-disc ratios (AGENTS.md \u00a78.2).\n\n``vertical`` is PRIMARY (clinically used height ratio). ``area_based`` is\nsecondary, for comparison with the paper/MedChat. The disc mask INCLUDES\nthe cup (nested convention) \u2014 do not apply the paper's rim-only formula.",
+  "properties": {
+    "vertical": {
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Vertical",
+      "type": "number"
+    },
+    "area_based": {
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Area Based",
+      "type": "number"
+    },
+    "mask_convention": {
+      "default": "disc_includes_cup",
+      "title": "Mask Convention",
+      "type": "string"
+    }
+  },
+  "required": [
+    "vertical",
+    "area_based"
+  ],
+  "title": "CDRMetrics",
+  "type": "object"
+}

@@ -1,0 +1,44 @@
+{
+  "additionalProperties": false,
+  "description": "Endpoint wire format \u2014 raw logits and masks only, nothing else (I-13).\n\n``endpoint_revision`` must equal the pinned revision in\n``configs/models.yaml``; the VisionClient rejects mismatches\n(fail closed, VISION_UNAVAILABLE). The check lives in the client, not\nhere, so recorded fixtures stay loadable in tests.",
+  "properties": {
+    "p_raw": {
+      "maximum": 1,
+      "minimum": 0,
+      "title": "P Raw",
+      "type": "number"
+    },
+    "disc_mask_rle": {
+      "title": "Disc Mask Rle",
+      "type": "string"
+    },
+    "cup_mask_rle": {
+      "title": "Cup Mask Rle",
+      "type": "string"
+    },
+    "mask_width": {
+      "exclusiveMinimum": 0,
+      "title": "Mask Width",
+      "type": "integer"
+    },
+    "mask_height": {
+      "exclusiveMinimum": 0,
+      "title": "Mask Height",
+      "type": "integer"
+    },
+    "endpoint_revision": {
+      "title": "Endpoint Revision",
+      "type": "string"
+    }
+  },
+  "required": [
+    "p_raw",
+    "disc_mask_rle",
+    "cup_mask_rle",
+    "mask_width",
+    "mask_height",
+    "endpoint_revision"
+  ],
+  "title": "RawVisionOutput",
+  "type": "object"
+}

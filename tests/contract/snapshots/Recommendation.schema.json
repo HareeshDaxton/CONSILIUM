@@ -1,0 +1,30 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "text": {
+      "maxLength": 500,
+      "minLength": 1,
+      "title": "Text",
+      "type": "string"
+    },
+    "triggered_by": {
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Triggered By",
+      "type": "array"
+    },
+    "basis": {
+      "default": "model_knowledge",
+      "title": "Basis",
+      "type": "string"
+    }
+  },
+  "required": [
+    "text",
+    "triggered_by"
+  ],
+  "title": "Recommendation",
+  "type": "object"
+}

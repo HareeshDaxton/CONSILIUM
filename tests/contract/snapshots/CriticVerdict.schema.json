@@ -1,0 +1,89 @@
+{
+  "$defs": {
+    "Issue": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "$ref": "#/$defs/IssueType"
+        },
+        "claim_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Claim Id"
+        },
+        "detail": {
+          "minLength": 1,
+          "title": "Detail",
+          "type": "string"
+        },
+        "evidence": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence",
+          "type": "array"
+        },
+        "raised_by": {
+          "minLength": 1,
+          "title": "Raised By",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "claim_id",
+        "detail",
+        "raised_by"
+      ],
+      "title": "Issue",
+      "type": "object"
+    },
+    "IssueType": {
+      "enum": [
+        "unsupported",
+        "numeric_mismatch",
+        "omitted_finding",
+        "out_of_scope",
+        "unsafe_language",
+        "disagreement_suppressed",
+        "bad_reference"
+      ],
+      "title": "IssueType",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Consistency rule (\u00a77): approved \u21d4 zero issues. Enforced here so an\nincoherent verdict can never be constructed, stored, or merged.",
+  "properties": {
+    "approved": {
+      "title": "Approved",
+      "type": "boolean"
+    },
+    "issues": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Issue"
+      },
+      "title": "Issues",
+      "type": "array"
+    },
+    "round": {
+      "minimum": 0,
+      "title": "Round",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "approved",
+    "round"
+  ],
+  "title": "CriticVerdict",
+  "type": "object"
+}

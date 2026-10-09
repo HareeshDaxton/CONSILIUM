@@ -1,0 +1,224 @@
+{
+  "$defs": {
+    "CDRMetrics": {
+      "additionalProperties": false,
+      "description": "Cup-to-disc ratios (AGENTS.md \u00a78.2).\n\n``vertical`` is PRIMARY (clinically used height ratio). ``area_based`` is\nsecondary, for comparison with the paper/MedChat. The disc mask INCLUDES\nthe cup (nested convention) \u2014 do not apply the paper's rim-only formula.",
+      "properties": {
+        "vertical": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Vertical",
+          "type": "number"
+        },
+        "area_based": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Area Based",
+          "type": "number"
+        },
+        "mask_convention": {
+          "default": "disc_includes_cup",
+          "title": "Mask Convention",
+          "type": "string"
+        }
+      },
+      "required": [
+        "vertical",
+        "area_based"
+      ],
+      "title": "CDRMetrics",
+      "type": "object"
+    },
+    "ClassifierOutput": {
+      "additionalProperties": false,
+      "properties": {
+        "p_raw": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "P Raw",
+          "type": "number"
+        },
+        "p_calibrated": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "P Calibrated",
+          "type": "number"
+        },
+        "tier": {
+          "$ref": "#/$defs/ScreeningTier"
+        },
+        "model_version": {
+          "title": "Model Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "p_raw",
+        "p_calibrated",
+        "tier",
+        "model_version"
+      ],
+      "title": "ClassifierOutput",
+      "type": "object"
+    },
+    "ImageQuality": {
+      "additionalProperties": false,
+      "properties": {
+        "score": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Score",
+          "type": "number"
+        },
+        "gradable": {
+          "title": "Gradable",
+          "type": "boolean"
+        },
+        "flags": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/QualityFlag"
+          },
+          "title": "Flags",
+          "type": "array"
+        }
+      },
+      "required": [
+        "score",
+        "gradable"
+      ],
+      "title": "ImageQuality",
+      "type": "object"
+    },
+    "Laterality": {
+      "enum": [
+        "OD",
+        "OS",
+        "UNKNOWN"
+      ],
+      "title": "Laterality",
+      "type": "string"
+    },
+    "MaskQC": {
+      "additionalProperties": false,
+      "properties": {
+        "cup_within_disc": {
+          "title": "Cup Within Disc",
+          "type": "boolean"
+        },
+        "single_component_each": {
+          "title": "Single Component Each",
+          "type": "boolean"
+        },
+        "disc_area_plausible": {
+          "title": "Disc Area Plausible",
+          "type": "boolean"
+        },
+        "ok": {
+          "title": "Ok",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "cup_within_disc",
+        "single_component_each",
+        "disc_area_plausible",
+        "ok"
+      ],
+      "title": "MaskQC",
+      "type": "object"
+    },
+    "Measurements": {
+      "additionalProperties": false,
+      "properties": {
+        "disc_area_px": {
+          "exclusiveMinimum": 0,
+          "title": "Disc Area Px",
+          "type": "integer"
+        },
+        "cup_area_px": {
+          "minimum": 0,
+          "title": "Cup Area Px",
+          "type": "integer"
+        },
+        "disc_vertical_diameter_px": {
+          "exclusiveMinimum": 0,
+          "title": "Disc Vertical Diameter Px",
+          "type": "integer"
+        },
+        "cup_vertical_diameter_px": {
+          "minimum": 0,
+          "title": "Cup Vertical Diameter Px",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "disc_area_px",
+        "cup_area_px",
+        "disc_vertical_diameter_px",
+        "cup_vertical_diameter_px"
+      ],
+      "title": "Measurements",
+      "type": "object"
+    },
+    "QualityFlag": {
+      "enum": [
+        "underexposed",
+        "overexposed",
+        "blurred",
+        "disc_not_visible",
+        "not_fundus",
+        "low_resolution"
+      ],
+      "title": "QualityFlag",
+      "type": "string"
+    },
+    "ScreeningTier": {
+      "description": "Derived from CALIBRATED probability via configs/thresholds.yaml.",
+      "enum": [
+        "low",
+        "intermediate",
+        "high"
+      ],
+      "title": "ScreeningTier",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Deterministic backend interpretation of endpoint output.\n\nComputed only in ``vision/``; LLMs reference these numbers by fact ID and\ncan never create or alter them (I-1).",
+  "properties": {
+    "quality": {
+      "$ref": "#/$defs/ImageQuality"
+    },
+    "classifier": {
+      "$ref": "#/$defs/ClassifierOutput"
+    },
+    "measurements": {
+      "$ref": "#/$defs/Measurements"
+    },
+    "cdr": {
+      "$ref": "#/$defs/CDRMetrics"
+    },
+    "mask_qc": {
+      "$ref": "#/$defs/MaskQC"
+    },
+    "segmenter_version": {
+      "title": "Segmenter Version",
+      "type": "string"
+    },
+    "laterality": {
+      "$ref": "#/$defs/Laterality"
+    }
+  },
+  "required": [
+    "quality",
+    "classifier",
+    "measurements",
+    "cdr",
+    "mask_qc",
+    "segmenter_version",
+    "laterality"
+  ],
+  "title": "CADResult",
+  "type": "object"
+}

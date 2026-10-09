@@ -1,0 +1,44 @@
+{
+  "$defs": {
+    "ScreeningTier": {
+      "description": "Derived from CALIBRATED probability via configs/thresholds.yaml.",
+      "enum": [
+        "low",
+        "intermediate",
+        "high"
+      ],
+      "title": "ScreeningTier",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "p_raw": {
+      "maximum": 1,
+      "minimum": 0,
+      "title": "P Raw",
+      "type": "number"
+    },
+    "p_calibrated": {
+      "maximum": 1,
+      "minimum": 0,
+      "title": "P Calibrated",
+      "type": "number"
+    },
+    "tier": {
+      "$ref": "#/$defs/ScreeningTier"
+    },
+    "model_version": {
+      "title": "Model Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "p_raw",
+    "p_calibrated",
+    "tier",
+    "model_version"
+  ],
+  "title": "ClassifierOutput",
+  "type": "object"
+}

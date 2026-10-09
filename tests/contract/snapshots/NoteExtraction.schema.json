@@ -1,0 +1,155 @@
+{
+  "$defs": {
+    "ClinicalNote": {
+      "additionalProperties": false,
+      "description": "Post-de-identification, post-extraction structured note.",
+      "properties": {
+        "age_years": {
+          "anyOf": [
+            {
+              "maximum": 120,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Age Years"
+        },
+        "iop_mmhg_od": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Iop Mmhg Od"
+        },
+        "iop_mmhg_os": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Iop Mmhg Os"
+        },
+        "current_medications": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Current Medications",
+          "type": "array"
+        },
+        "drug_intolerances_or_allergies": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Drug Intolerances Or Allergies",
+          "type": "array"
+        },
+        "comorbidities": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Comorbidities",
+          "type": "array"
+        },
+        "prior_glaucoma_dx": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Prior Glaucoma Dx"
+        },
+        "exam_findings": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Exam Findings"
+        },
+        "free_text": {
+          "anyOf": [
+            {
+              "maxLength": 4000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Free Text"
+        }
+      },
+      "title": "ClinicalNote",
+      "type": "object"
+    },
+    "Confidence": {
+      "enum": [
+        "low",
+        "moderate",
+        "high"
+      ],
+      "title": "Confidence",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Provenance for the extraction step (I-8, \u00a710.5).\n\n``redactions`` records which PHI patterns fired \u2014 pattern NAMES only,\nnever the redacted values (I-6).",
+  "properties": {
+    "note": {
+      "$ref": "#/$defs/ClinicalNote"
+    },
+    "extractor_model": {
+      "title": "Extractor Model",
+      "type": "string"
+    },
+    "extractor_prompt_version": {
+      "title": "Extractor Prompt Version",
+      "type": "string"
+    },
+    "redactions": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Redactions",
+      "type": "array"
+    },
+    "extraction_confidence": {
+      "$ref": "#/$defs/Confidence"
+    }
+  },
+  "required": [
+    "note",
+    "extractor_model",
+    "extractor_prompt_version",
+    "extraction_confidence"
+  ],
+  "title": "NoteExtraction",
+  "type": "object"
+}

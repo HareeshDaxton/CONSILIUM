@@ -1,0 +1,73 @@
+{
+  "$defs": {
+    "FactSource": {
+      "enum": [
+        "cad",
+        "note",
+        "derived"
+      ],
+      "title": "FactSource",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "One typed, citable fact. Every claim in the pipeline cites these by ID.",
+  "properties": {
+    "id": {
+      "minLength": 1,
+      "title": "Id",
+      "type": "string"
+    },
+    "label": {
+      "minLength": 1,
+      "title": "Label",
+      "type": "string"
+    },
+    "value": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "integer"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      ],
+      "title": "Value"
+    },
+    "unit": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Unit"
+    },
+    "source": {
+      "$ref": "#/$defs/FactSource"
+    }
+  },
+  "required": [
+    "id",
+    "label",
+    "value",
+    "source"
+  ],
+  "title": "Fact",
+  "type": "object"
+}

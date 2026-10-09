@@ -1,0 +1,33 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "disc_area_px": {
+      "exclusiveMinimum": 0,
+      "title": "Disc Area Px",
+      "type": "integer"
+    },
+    "cup_area_px": {
+      "minimum": 0,
+      "title": "Cup Area Px",
+      "type": "integer"
+    },
+    "disc_vertical_diameter_px": {
+      "exclusiveMinimum": 0,
+      "title": "Disc Vertical Diameter Px",
+      "type": "integer"
+    },
+    "cup_vertical_diameter_px": {
+      "minimum": 0,
+      "title": "Cup Vertical Diameter Px",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "disc_area_px",
+    "cup_area_px",
+    "disc_vertical_diameter_px",
+    "cup_vertical_diameter_px"
+  ],
+  "title": "Measurements",
+  "type": "object"
+}

@@ -1,0 +1,110 @@
+{
+  "$defs": {
+    "Fact": {
+      "additionalProperties": false,
+      "description": "One typed, citable fact. Every claim in the pipeline cites these by ID.",
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "label": {
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          ],
+          "title": "Value"
+        },
+        "unit": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unit"
+        },
+        "source": {
+          "$ref": "#/$defs/FactSource"
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "value",
+        "source"
+      ],
+      "title": "Fact",
+      "type": "object"
+    },
+    "FactSource": {
+      "enum": [
+        "cad",
+        "note",
+        "derived"
+      ],
+      "title": "FactSource",
+      "type": "string"
+    },
+    "Laterality": {
+      "enum": [
+        "OD",
+        "OS",
+        "UNKNOWN"
+      ],
+      "title": "Laterality",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "C_global \u2014 every fact for a case, before routing.\n\nBuilder guarantees (enforced here at the schema boundary): fact IDs are\nunique. \"Every CAD field represented\" and caveat completeness are the\nbuilder's job (P4) and are verified by the deterministic verifier.",
+  "properties": {
+    "case_id": {
+      "minLength": 1,
+      "title": "Case Id",
+      "type": "string"
+    },
+    "laterality": {
+      "$ref": "#/$defs/Laterality"
+    },
+    "facts": {
+      "items": {
+        "$ref": "#/$defs/Fact"
+      },
+      "title": "Facts",
+      "type": "array"
+    }
+  },
+  "required": [
+    "case_id",
+    "laterality",
+    "facts"
+  ],
+  "title": "GlobalContext",
+  "type": "object"
+}

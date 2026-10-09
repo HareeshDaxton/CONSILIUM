@@ -1,0 +1,43 @@
+{
+  "$defs": {
+    "QualityFlag": {
+      "enum": [
+        "underexposed",
+        "overexposed",
+        "blurred",
+        "disc_not_visible",
+        "not_fundus",
+        "low_resolution"
+      ],
+      "title": "QualityFlag",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "score": {
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Score",
+      "type": "number"
+    },
+    "gradable": {
+      "title": "Gradable",
+      "type": "boolean"
+    },
+    "flags": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/QualityFlag"
+      },
+      "title": "Flags",
+      "type": "array"
+    }
+  },
+  "required": [
+    "score",
+    "gradable"
+  ],
+  "title": "ImageQuality",
+  "type": "object"
+}

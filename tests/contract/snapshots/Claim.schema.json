@@ -1,0 +1,89 @@
+{
+  "$defs": {
+    "ClaimKind": {
+      "enum": [
+        "numeric",
+        "categorical",
+        "interpretive",
+        "recommendation"
+      ],
+      "title": "ClaimKind",
+      "type": "string"
+    },
+    "Role": {
+      "enum": [
+        "ophthalmologist",
+        "optometrist",
+        "pharmacist"
+      ],
+      "title": "Role",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "One attributable statement in a DirectorDraft.\n\nAttribute, don't launder (\u00a712): ``source_roles`` records who asserted\nit. NUMERIC claims must pin their number to a fact ID so the\ndeterministic verifier can compare within tolerance.",
+  "properties": {
+    "id": {
+      "minLength": 1,
+      "title": "Id",
+      "type": "string"
+    },
+    "kind": {
+      "$ref": "#/$defs/ClaimKind"
+    },
+    "text": {
+      "minLength": 1,
+      "title": "Text",
+      "type": "string"
+    },
+    "evidence_refs": {
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Evidence Refs",
+      "type": "array"
+    },
+    "source_roles": {
+      "items": {
+        "$ref": "#/$defs/Role"
+      },
+      "minItems": 1,
+      "title": "Source Roles",
+      "type": "array"
+    },
+    "numeric_value": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Numeric Value"
+    },
+    "numeric_ref": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Numeric Ref"
+    }
+  },
+  "required": [
+    "id",
+    "kind",
+    "text",
+    "evidence_refs",
+    "source_roles"
+  ],
+  "title": "Claim",
+  "type": "object"
+}

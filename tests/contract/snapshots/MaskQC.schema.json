@@ -1,0 +1,29 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "cup_within_disc": {
+      "title": "Cup Within Disc",
+      "type": "boolean"
+    },
+    "single_component_each": {
+      "title": "Single Component Each",
+      "type": "boolean"
+    },
+    "disc_area_plausible": {
+      "title": "Disc Area Plausible",
+      "type": "boolean"
+    },
+    "ok": {
+      "title": "Ok",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "cup_within_disc",
+    "single_component_each",
+    "disc_area_plausible",
+    "ok"
+  ],
+  "title": "MaskQC",
+  "type": "object"
+}

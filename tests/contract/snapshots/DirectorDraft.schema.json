@@ -1,0 +1,214 @@
+{
+  "$defs": {
+    "Claim": {
+      "additionalProperties": false,
+      "description": "One attributable statement in a DirectorDraft.\n\nAttribute, don't launder (\u00a712): ``source_roles`` records who asserted\nit. NUMERIC claims must pin their number to a fact ID so the\ndeterministic verifier can compare within tolerance.",
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/ClaimKind"
+        },
+        "text": {
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        },
+        "evidence_refs": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "source_roles": {
+          "items": {
+            "$ref": "#/$defs/Role"
+          },
+          "minItems": 1,
+          "title": "Source Roles",
+          "type": "array"
+        },
+        "numeric_value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Numeric Value"
+        },
+        "numeric_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Numeric Ref"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "text",
+        "evidence_refs",
+        "source_roles"
+      ],
+      "title": "Claim",
+      "type": "object"
+    },
+    "ClaimKind": {
+      "enum": [
+        "numeric",
+        "categorical",
+        "interpretive",
+        "recommendation"
+      ],
+      "title": "ClaimKind",
+      "type": "string"
+    },
+    "Disagreement": {
+      "additionalProperties": false,
+      "description": "A preserved, visible role disagreement \u2014 a safety feature, not an\naudit failure (\u00a74, \u00a712).",
+      "properties": {
+        "topic": {
+          "minLength": 1,
+          "title": "Topic",
+          "type": "string"
+        },
+        "positions": {
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "$ref": "#/$defs/Role"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "type": "array"
+          },
+          "minItems": 2,
+          "title": "Positions",
+          "type": "array"
+        },
+        "resolution": {
+          "minLength": 1,
+          "title": "Resolution",
+          "type": "string"
+        }
+      },
+      "required": [
+        "topic",
+        "positions",
+        "resolution"
+      ],
+      "title": "Disagreement",
+      "type": "object"
+    },
+    "Recommendation": {
+      "additionalProperties": false,
+      "properties": {
+        "text": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        },
+        "triggered_by": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Triggered By",
+          "type": "array"
+        },
+        "basis": {
+          "default": "model_knowledge",
+          "title": "Basis",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text",
+        "triggered_by"
+      ],
+      "title": "Recommendation",
+      "type": "object"
+    },
+    "Role": {
+      "enum": [
+        "ophthalmologist",
+        "optometrist",
+        "pharmacist"
+      ],
+      "title": "Role",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "The synthesized draft. Never final without clinician action (I-4).\n\n``limitations`` is mandatory (no default): it must carry every QC caveat\nfrom context and screening-support wording; the deterministic verifier\nchecks coverage.",
+  "properties": {
+    "impression": {
+      "minLength": 1,
+      "title": "Impression",
+      "type": "string"
+    },
+    "claims": {
+      "items": {
+        "$ref": "#/$defs/Claim"
+      },
+      "title": "Claims",
+      "type": "array"
+    },
+    "disagreements": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Disagreement"
+      },
+      "title": "Disagreements",
+      "type": "array"
+    },
+    "recommendations": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Recommendation"
+      },
+      "title": "Recommendations",
+      "type": "array"
+    },
+    "limitations": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Limitations",
+      "type": "array"
+    },
+    "revision": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Revision",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "impression",
+    "claims",
+    "limitations"
+  ],
+  "title": "DirectorDraft",
+  "type": "object"
+}
