@@ -5,7 +5,7 @@ section of `impemantation_plane.txt`. Each entry records in detail: what was
 done (files, key decisions), what was verified and how (exact commands), what
 was deferred or not verified, and any CLINICAL-REVIEW items.
 
-Current position: **Phase 0 — Sections 0.1, 0.2, 0.3 done. Next: Section 0.4 (awaiting go-ahead).**
+Current position: **Phase 0 COMPLETE (all 5 sections). Next: Phase 1, Section 1.1 (awaiting go-ahead).**
 
 ---
 
@@ -209,6 +209,82 @@ machine, so each target's exact command was run directly via `uv run`)**
 - `make` binary absent on this machine — user should install make
   (e.g. via chocolatey/scoop) or keep running the `uv run` commands directly.
 - eval-*/migrate/serve/up/down targets are honest stubs until their phases.
+
+**CLINICAL-REVIEW items:** none.
+
+---
+
+### Section 0.4 — Docker & local compose stack ✅ DONE
+
+**Goal (from implementation plan):** slim CPU Docker image for api/worker (NO
+torch), docker-compose with api/worker/postgres/minio/fake-vision (+ optional
+langfuse profile), .env.example covering every §8 variable,
+scripts/fake_vision_server.py stub. Exit: `make up` brings the stack up;
+GET /healthz placeholder responds.
+
+**What was done — files created/changed**
+- `Dockerfile` — python:3.13-slim, uv binary copied from the official uv image,
+  cached dependency layer (`uv sync --frozen --no-dev --no-install-project`,
+  then src+scripts, then full sync). One image for all roles; default CMD is
+  the api; worker/fake-vision override `command` in compose. CPU-only, no
+  torch (I-13).
+- `.dockerignore` — excludes .venv, tests/, docs, data/, env files, *.md
+  (except README.md needed by hatchling), etc.
+- `docker-compose.yml` — services: postgres:16 (healthcheck pg_isready,
+  pgdata volume), minio (see decision below; MINIO_DEFAULT_BUCKETS=consilium,
+  curl healthcheck), fake-vision (built from our image, port 8100), api
+  (port 8000, depends on healthy postgres), worker (same image, placeholder
+  command). Env via ${VAR:-dev-default} interpolation; dev-only values
+  documented. Langfuse left as a commented profile block with the
+  ClickHouse/Redis/blob caveat (AGENTS.md §18).
+- `.env.example` — every §8 variable grouped and commented: LLM (incl. all
+  model snapshots + temperatures + budget + CRITIC_MAX_ROUNDS), DB/storage,
+  vision mode + endpoint + pinned revision, observability, JWT.
+- `src/consilium/api/main.py` — placeholder FastAPI app answering /healthz
+  (real create_app(deps) with auth/routes lands in Phase 11).
+- `scripts/worker_placeholder.py` — heartbeat loop so the worker service is
+  real (replaced by consilium.jobs.worker in Phase 9/11); logs via core JSON
+  logging.
+- `scripts/fake_vision_server.py` — FastAPI stub: /healthz + POST /predict
+  returning a canned RawVisionOutput-shaped payload with FAKE_VISION_REVISION
+  env override. RLE strings are STUB markers — the real codec (vision/rle.py)
+  and sha256-keyed canned fixtures + failure modes land in Phase 2.
+- `Makefile` — `up`/`down` now real (`docker compose up -d --build` / `down`).
+
+**Key decisions & reasons**
+- **minio/minio no longer exists on Docker Hub** (MinIO stopped publishing
+  community images; quay.io/minio returns 401). Switched to
+  `bitnamilegacy/minio` — the same MinIO server, dev-only. The
+  OBJECT_STORE_URI seam (S3-compatible in prod) is unaffected; documented in
+  the compose file.
+- Bitnami image's MINIO_DEFAULT_BUCKETS creates the `consilium` bucket at
+  boot → the separate minio-init/mc job was deleted (one less moving part).
+- OPENAI_API_KEY may be empty in the dev stack (placeholder api calls no LLM);
+  JWT_SECRET carries a loudly-named dev default.
+- Compose sets VISION_CLIENT_MODE=http pointing at fake-vision so the stack
+  exercises the real HTTP path; .env.example defaults to `fake` for bare-metal
+  dev.
+
+**Verified (commands run)**
+- `docker compose config -q` → valid.
+- `docker compose up -d --build` → exit 0; `docker compose ps` → all 5
+  services Up, postgres + minio **healthy**.
+- `curl localhost:8000/healthz` → {"status":"ok",...,"phase":"p0-placeholder"}.
+- `curl localhost:8100/healthz` → ok with fake revision;
+  `POST /predict` → canned payload.
+- `docker compose logs worker` → JSON heartbeat from core logging.
+- `docker compose down` → clean teardown (volumes kept).
+- ruff check/format, mypy strict (25 files), pytest 48 passed,
+  lint-imports 7/7 kept — all still green.
+- (Started Docker Desktop daemon myself — server 29.6.2 — it was not running.)
+
+**Deferred / not verified**
+- GitHub Actions has no docker job (CI is gates-only per plan); image build is
+  verified locally, not in CI.
+- Langfuse profile deliberately left commented (heavy footprint, docs-check
+  required before enabling).
+- No object-store round-trip test yet (app storage layer lands later; only the
+  bucket bootstraps here).
 
 **CLINICAL-REVIEW items:** none.
 
