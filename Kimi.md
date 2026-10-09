@@ -5,7 +5,7 @@ section of `impemantation_plane.txt`. Each entry records in detail: what was
 done (files, key decisions), what was verified and how (exact commands), what
 was deferred or not verified, and any CLINICAL-REVIEW items.
 
-Current position: **Phase 0 — Section 0.1 done. Next: Section 0.2 (awaiting go-ahead).**
+Current position: **Phase 0 — Sections 0.1, 0.2 done. Next: Section 0.3 (awaiting go-ahead).**
 
 ---
 
@@ -79,6 +79,75 @@ Exit: `uv sync --all-groups` works; pytest collects.
 - Environment quirk: coverage's C tracer is blocked by a Windows Application
   Control policy on this machine; coverage falls back to the pure-Python
   tracer (slower, functionally harmless).
+
+**CLINICAL-REVIEW items:** none.
+
+---
+
+### Section 0.2 — Core: settings, logging, errors, ids, clock ✅ DONE
+
+**Goal (from implementation plan):** `core/settings.py` (pydantic-settings,
+env table from ARCHITECTURE.md §8, no defaults for secrets), `core/errors.py`
+exception hierarchy + status mapping, `core/logging.py` structured JSON
+PHI-safe logs, `core/ids.py` + `core/clock.py` injectable/fakeable.
+Exit: unit tests for settings parsing + error mapping; logging emits JSON.
+
+**What was done — files created**
+- `src/consilium/core/settings.py` — `Settings(BaseSettings)`, frozen,
+  `.env` support. Full §8 env table: OPENAI_API_KEY + JWT_SECRET + DATABASE_URL
+  as required secrets (no defaults, fail fast); LLM model snapshot fields
+  (specialist/director/critic, default `gpt-4o-mini-2024-07-18` — dated
+  snapshot, never floating alias), temperatures, LLM_TIMEOUT_S=60,
+  LLM_MAX_RETRIES=3, LLM_CASE_TOKEN_BUDGET=100k, CRITIC_MAX_ROUNDS=3;
+  OBJECT_STORE_URI default `file://./data/objects`; VISION_CLIENT_MODE
+  (`fake` default) + endpoint url/token/pinned-revision + VISION_TIMEOUT_S=120;
+  Langfuse/OTel optionals. Two model validators:
+  (1) `vision_client_mode="http"` requires endpoint URL + token + pinned
+  revision (fail closed, §8.0);
+  (2) critic must differ from director in model OR temperature
+  (AGENTS.md §6 — self-critique by same configuration forbidden).
+- `src/consilium/core/errors.py` — `AppError` base (reason + detail) and
+  `InputRejected`→REJECTED_INPUT/input-rejected,
+  `VisionFailure`→FAILED/unprocessable, `AgentFailure`→FAILED/unprocessable,
+  `ValidationFailure`→FAILED/validation-failed,
+  `PolicyViolation`→REJECTED_INPUT (or NEEDS_ATTENTION post-extraction, via
+  per-instance case_status; invalid statuses like "APPROVED" raise).
+  Docstring records the PHI rule: reason is user-safe, detail never carries
+  note text/filenames/prompts (I-6/I-7).
+- `src/consilium/core/logging.py` — stdlib-based `JsonFormatter` (no new dep):
+  one JSON object per line (ts/level/logger/msg + extras), deny-key redaction
+  (`DENY_KEYS`: note, note_text, raw_note, filename, upload_filename, image,
+  prompt, messages, patient, mrn, dob, … → `"[REDACTED]"`, case-insensitive),
+  exc_type on exceptions, `_safe()` stringifies exotic values.
+  `setup_logging(level)` idempotent; `get_logger(name)`.
+- `src/consilium/core/ids.py` — `IdGen` protocol, `UuidIdGen` (prod),
+  `FakeIdGen` (deterministic `test-…-000000000001` sequence for tests).
+- `src/consilium/core/clock.py` — `Clock` protocol, `SystemClock` (tz-aware
+  UTC), `FakeClock` (settable, `advance()`; naive datetimes rejected).
+- Tests: `tests/unit/test_settings.py` (14 tests), `test_errors.py` (9),
+  `test_logging.py` (20, parametrized over DENY_KEYS), `test_ids_clock.py` (8).
+
+**Key decisions & reasons**
+- case_status/problem_type are plain class defaults, NOT ClassVar — mypy
+  forbids per-instance override of ClassVar, and PolicyViolation needs it.
+- No structlog/python-json-logger dependency: stdlib JSON formatter keeps the
+  dep list lean (AGENTS.md §21 — additions need reasons).
+- `filename` stays in DENY_KEYS, but stdlib logging already hard-blocks
+  `extra={"filename": …}` (reserved LogRecord attr, KeyError) — documented in
+  a test; the PHI-safe field name is `upload_filename`.
+- CaseStatus enum NOT created yet (belongs to Section 1.1); errors map to the
+  status NAME STRINGS from AGENTS.md §4 — P9 will reconcile them with the enum.
+
+**Verified (commands run)**
+- `pytest tests/unit` → **48 passed**; coverage on src 99%.
+- `ruff check src tests` → clean. `ruff format --check` → clean.
+- `mypy` (strict, 24 source files) → no issues.
+
+**Deferred / not verified**
+- Settings validators are unit-tested but not yet wired into an app entrypoint
+  (P11). No .env.example yet (Section 0.4).
+- Logging redaction is key-based, not value-based; a PHI value under a
+  non-denied key would pass — noted for the phi-review skill at release.
 
 **CLINICAL-REVIEW items:** none.
 
