@@ -1,36 +1,54 @@
 ================================================================================
-PER-FILE COMMIT MESSAGES — Phase 0, Section 0.5 (PHASE 0 COMPLETE)
+PER-FILE COMMIT MESSAGES — Phase 1, Sections 1.1 + 1.2
 Format: <file>  ->  <commit message>
 ================================================================================
 
-tests/conftest.py                 test(harness): add shared fixtures (fake clock, fake idgen, tmp object store, test settings)
+src/consilium/schemas/base.py        feat(schemas): add the Strict base model (strict, forbid-extra, frozen) per AGENTS.md §7
 
-scripts/make_fixtures.py          test(fixtures): add the deterministic synthetic-fixture generator
+src/consilium/schemas/enums.py       feat(schemas): add shared StrEnums including the §4 CaseStatus state machine
 
-tests/fixtures/synthetic_notes.json    test(fixtures): add synthetic clinical-note fixtures (generated, no real patient data)
+src/consilium/schemas/vision.py      feat(schemas): add vision contracts (CADResult, RawVisionOutput wire format)
 
-tests/fixtures/PROVENANCE.md      test(fixtures): record synthetic provenance per SKILLS.md convention
+src/consilium/schemas/__init__.py    feat(schemas): re-export base, enums and vision contracts from the package root
 
-tests/unit/test_harness.py        test(harness): cover the shared fixtures and fixture-corpus guarantees
+tests/unit/test_schemas_base_enums.py    test(schemas): cover strictness, frozen models, enum value sets and CaseStatus↔errors alignment
 
-tests/integration/test_core_wiring.py  test(integration): prove core modules wire together offline
+tests/unit/test_schemas_vision.py    test(schemas): cover vision contract bounds, defaults, round-trips and pin-check placement
 
-Kimi.md                           docs(memory): log section 0.5 and phase 0 completion in project memory
+Kimi.md                              docs(memory): log sections 1.1 and 1.2 in project memory
 
-commit_doc.txt                    docs(commit): refresh commit messages for section 0.5
+commit_doc.txt                       docs(commit): refresh commit messages for sections 1.1 + 1.2
 
 
 ================================================================================
 SUGGESTED GROUPING (fewer commits, same result)
 ================================================================================
 
-git add tests/ scripts/make_fixtures.py
-git commit -m "test(harness): add shared fixtures, synthetic-fixture generator and sample unit+integration tests (Phase 0, Section 0.5)"
+# Option A — one commit per section:
+
+git add src/consilium/schemas/base.py src/consilium/schemas/enums.py tests/unit/test_schemas_base_enums.py
+git commit -m "feat(schemas): add Strict base and shared enums with CaseStatus (Phase 1, Section 1.1)"
+
+git add src/consilium/schemas/vision.py src/consilium/schemas/__init__.py tests/unit/test_schemas_vision.py
+git commit -m "feat(schemas): add vision contracts CADResult and RawVisionOutput (Phase 1, Section 1.2)"
 
 git add Kimi.md commit_doc.txt
-git commit -m "docs: close out phase 0 in project memory"
+git commit -m "docs: log sections 1.1 + 1.2 and refresh commit messages"
 
-git push
+# Option B — single commit for both sections:
 
-NOTE: Phase 0 is now complete — exit criterion "make ci green on skeleton" met
-(54 tests, ruff/mypy/import-linter clean, compose stack verified live).
+git add src/consilium/schemas tests/unit/test_schemas_base_enums.py tests/unit/test_schemas_vision.py
+git commit -m "feat(schemas): add Strict base, shared enums and vision contracts (Phase 1, Sections 1.1 + 1.2)"
+
+git add Kimi.md commit_doc.txt
+git commit -m "docs: log sections 1.1 + 1.2 and refresh commit messages"
+
+
+================================================================================
+VERIFICATION STATE AT TIME OF WRITING
+================================================================================
+pytest -m "not live"  -> 90 passed (54 prior + 36 new)
+ruff check + format   -> clean (40 files)
+mypy --strict src/    -> clean (28 source files)
+import-linter         -> 7/7 contracts kept
+================================================================================
