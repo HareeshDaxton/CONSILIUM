@@ -5,7 +5,7 @@ section of `impemantation_plane.txt`. Each entry records in detail: what was
 done (files, key decisions), what was verified and how (exact commands), what
 was deferred or not verified, and any CLINICAL-REVIEW items.
 
-Current position: **Phase 1 IN PROGRESS — Sections 1.1 + 1.2 done. Next: Section 1.3 note & context contracts (awaiting go-ahead).**
+Current position: **Phase 1 COMPLETE (all 5 sections). Next: Phase 2, Section 2.1 vision data pipeline (awaiting go-ahead).**
 
 ---
 
@@ -451,6 +451,169 @@ round-trips.
 - `make` not run (no binary); equivalent `uv run` commands verified.
 
 **CLINICAL-REVIEW items:** none.
+
+### Section 1.3 — Note + context contracts ✅ DONE
+
+**Goal (from implementation plan):** `ClinicalNote`, `NoteExtraction`,
+`Fact`, `GlobalContext`, `RoleContext` (incl. `allowed_ids()`).
+Files: `schemas/note.py`, `schemas/context.py`.
+Exit: round-trip tests; GlobalContext uniqueness validator tested.
+
+**What was done — files created/changed**
+- `src/consilium/schemas/note.py` — `ClinicalNote` (all fields optional per
+  §7; `age_years` bounded 0–120; `exam_findings` ≤2000 chars, `free_text`
+  ≤4000 chars; both marked untrusted in the module docstring, I-7) and
+  `NoteExtraction` (extractor model snapshot, prompt version, redaction
+  pattern NAMES only, extraction confidence).
+- `src/consilium/schemas/context.py` — `Fact` (dotted ID, label, union
+  value, optional unit, source), `GlobalContext` with a
+  `@model_validator` enforcing unique fact IDs, and `RoleContext` with the
+  same uniqueness check plus `allowed_ids()` → frozenset of its fact IDs.
+- `tests/unit/test_schemas_note_context.py` — 16 tests: defaults, age/text
+  bounds incl. exact boundary values, extraction round-trip with provenance,
+  Fact union type preservation (int stays int, bool stays bool under the
+  smart union in strict mode), duplicate-ID rejection, `allowed_ids()`,
+  round-trips.
+- Fixed a definition-order NameError caught on first run
+  (`_ensure_unique_ids` referenced `Fact` before the class existed) — helper
+  moved below the class.
+
+**Key decisions & reasons**
+- Unique-ID enforcement lives in the SCHEMA, not only the P4 builder:
+  "builder guarantees unique IDs" (§7) becomes a constructor-time invariant
+  no caller can bypass — defense in depth, and it makes the guarantee
+  testable today.
+- `allowed_ids()` derives from the facts present (the router emits only
+  allowlisted facts), which is exactly the set specialist output validators
+  will check `evidence_refs`/`triggered_by` against (second isolation
+  enforcement, §7 contract rules).
+- `iop_mmhg_*` left unconstrained per §7 (no range in the contract); a
+  physiological range is a clinical decision — flagged below, not guessed.
+
+**Verified (commands run)**
+- `uv run pytest -m "not live" -q` → all pass (16 new).
+- Fact union probe: `Fact(value=5)` keeps `int`, `value=True` keeps `bool`,
+  `value=0.62` keeps `float` under strict mode.
+
+**Deferred / not verified:** none for this section.
+
+**CLINICAL-REVIEW items**
+- `ClinicalNote.iop_mmhg_od/os` have no physiological range validation
+  (faithful to §7). If the clinical co-author wants impossible values
+  rejected at the boundary (e.g. IOP < 0 or > 80 mmHg), that is a
+  schema-change decision for them to make.
+
+### Section 1.4 — Agent output + audit contracts ✅ DONE
+
+**Goal (from implementation plan):** `Finding`, `Recommendation`,
+`SubReport`, `Claim`, `Disagreement`, `DirectorDraft`, `Issue`,
+`CriticVerdict` (with the approved⇔no-issues validator).
+Files: `schemas/agents.py`, `schemas/audit.py`.
+Exit: round-trip tests; CriticVerdict consistency tested; NUMERIC-claim
+value+ref requirement tested.
+
+**What was done — files created/changed**
+- `src/consilium/schemas/agents.py` — `Finding` (text 1–600, refs ≥1,
+  confidence), `Recommendation` (text 1–500, triggered_by ≥1,
+  basis="model_knowledge" default per §7), `SubReport`, `Claim` (with
+  NUMERIC ⇒ numeric_value+numeric_ref validator), `Disagreement`
+  (≥2 positions, distinct-roles validator), `DirectorDraft` (limitations
+  REQUIRED — no default; unique-claim-ID validator; revision ≥0).
+- `src/consilium/schemas/audit.py` — `Issue` (claim_id nullable for
+  draft-level issues; raised_by "deterministic"|"llm_critic" kept as `str`
+  per §7) and `CriticVerdict` with the exact §7 consistency validator:
+  approved ⇒ no issues; rejection ⇒ ≥1 issue.
+- `tests/unit/test_schemas_agents_audit.py` — 24 tests covering every
+  validator above, all boundary lengths, and JSON round-trips.
+
+**Key decisions & reasons**
+- Strengthenings beyond the literal §7 field list, each tied to an
+  invariant: `Claim.evidence_refs` and `source_roles` are `min_length=1`
+  (I-3 — every claim carries refs and attribution); `Disagreement`
+  positions must come from distinct roles (a same-role "disagreement" is
+  meaningless); `DirectorDraft` claim IDs unique (issues reference
+  claim_id, so duplicates would be ambiguous).
+- `DirectorDraft.limitations` has NO default — it cannot be omitted;
+  §12 makes it mandatory and the verifier (P7) checks its caveat coverage.
+- `Issue.raised_by` kept `str` (faithful to §7) rather than an enum;
+  tightening it is a future schema-change if desired.
+
+**Verified (commands run)**
+- `uv run pytest -m "not live" -q` → all pass (24 new).
+
+**Deferred / not verified:** none for this section.
+
+**CLINICAL-REVIEW items:** none.
+
+### Section 1.5 — Fact IDs + JSON-Schema snapshots ✅ DONE
+
+**Goal (from implementation plan):** `context/facts.py` (the `F` constant
+class exactly per ARCHITECTURE.md §5.6 + `caveat()` helper);
+`make schema-snapshot` dumps JSON Schema for every model; contract test
+fails CI on drift. Exit: snapshots committed; deliberate field change →
+CI failure observed, then reverted.
+
+**What was done — files created/changed**
+- `src/consilium/context/facts.py` — `F` with the 22 canonical fact IDs
+  exactly per §5.6 (CAD + note groups) and the `caveat(flag)` helper for
+  `cad.caveat.<flag>`. No extensions beyond the spec.
+- `scripts/schema_snapshot.py` — derives the model list from
+  `consilium.schemas.__all__` (exporting a new model automatically requires
+  its snapshot); write mode regenerates and removes stale files; `--check`
+  mode diffs in memory and exits 1 on missing/drifted/orphaned snapshots
+  with regeneration instructions.
+- `tests/contract/snapshots/` — 21 committed snapshots (one per exported
+  model, incl. the `Strict` base).
+- `tests/contract/test_schema_snapshots.py` — runs the same script CI runs
+  (subprocess, `--check`) so local and CI can never disagree; plus a guard
+  that ≥20 snapshots exist (dir not silently emptied/moved).
+- `tests/unit/test_facts.py` — 4 tests: every `F` attribute matches the
+  §5.6 string exactly, no duplicates/extras, `caveat()` output, caveat
+  coverage for all 6 QualityFlags.
+- `Makefile` — `schema-check` is now the real gate (stub conditional
+  removed); new `make schema-snapshot` target; `.PHONY` updated.
+- `src/consilium/schemas/__init__.py` — re-exports all 21 models + 10
+  enums with sorted `__all__`.
+
+**Key decisions & reasons**
+- Snapshot derivation from `__all__` (not a hand-maintained list) means a
+  forgotten snapshot is impossible — the check catches missing AND orphaned
+  files.
+- The contract test invokes the script via subprocess with the same
+  `--check` flag `make schema-check` uses: one source of truth, no logic
+  duplicated into pytest.
+- `caveat()` kept exactly per §5.6 (str in, str out); an earlier typed
+  wrapper was removed to stay faithful — callers pass `flag.value`.
+
+**Verified (commands run)**
+- `uv run python scripts/schema_snapshot.py` → wrote 21 snapshots.
+- Drift probe (exit criterion): temporarily changed `CDRMetrics.vertical`
+  bound `le=1 → le=2` → `--check` FAILED with exit 1, correctly naming
+  `CDRMetrics.schema.json` AND the dependent `CADResult.schema.json`;
+  reverted via git → green again.
+- `uv run pytest -m "not live" -q` → **137 passed** (90 prior + 47 new).
+- ruff check + format → clean (50 files); mypy --strict → clean (33 source
+  files); lint-imports → 7/7 kept; `--check` → "up to date (21 models)".
+
+**Deferred / not verified**
+- `make` targets verified via identical `uv run` commands (no make binary).
+- Snapshots are committed but no PR review of the diff has happened (the
+  schema-change skill names the diff as the review artifact — first real
+  review opportunity is the next schema change).
+
+**CLINICAL-REVIEW items:** none.
+
+---
+
+## ✅ PHASE 1 COMPLETE — exit criterion met
+
+Contract suite green: 137 tests pass; all 21 contract models export from
+`consilium.schemas` with zero internal deps (import-linter 7/7 — schemas
+import nothing from the rest of the package); 21 JSON-Schema snapshots
+committed and drift-checked in CI via `make schema-check`. All AGENTS.md §7
+models now exist: Strict base, 10 enums + CaseStatus, vision (7), note (2),
+context (3), agents (6), audit (2), plus the `F` fact-ID constants.
+Ready for Phase 2 — vision subsystem (Section 2.1 next, on your go-ahead).
 
 ---
 
