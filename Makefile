@@ -1,7 +1,7 @@
 # CONSILIUM Makefile — command surface per AGENTS.md §26.
 # All Python tooling runs through `uv run` so it works the same locally and in CI.
 
-.PHONY: setup lint typecheck imports test test-live ci schema-check \
+.PHONY: setup lint typecheck imports test test-live ci schema-check schema-snapshot \
         eval-smoke eval-full migrate serve up down
 
 setup:          ## Install all deps and dev tooling
@@ -25,12 +25,11 @@ test-live:      ## Live tests — needs OPENAI_API_KEY (and optionally the dev e
 
 ci: lint typecheck imports test schema-check  ## Full merge-blocking gate
 
-schema-check:   ## JSON-Schema snapshot drift check (implemented in Phase 1)
-	@if [ -f scripts/schema_snapshot.py ]; then \
-		uv run python scripts/schema_snapshot.py --check; \
-	else \
-		echo "schema-check: not yet implemented (lands in Phase 1, Section 1.5) — skipping"; \
-	fi
+schema-check:   ## JSON-Schema snapshot drift check (CI gate)
+	uv run python scripts/schema_snapshot.py --check
+
+schema-snapshot: ## Regenerate JSON-Schema snapshots after an intentional schema change
+	uv run python scripts/schema_snapshot.py
 
 eval-smoke:     ## Small fixed eval set, fake/recorded LLM + recorded vision (Phase 13)
 	@echo "eval-smoke: not implemented until Phase 13" && exit 1
