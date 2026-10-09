@@ -1,54 +1,46 @@
 ================================================================================
-COMMIT MESSAGE — copy everything below the line into your commit
+PER-FILE COMMIT MESSAGES — Phase 0, Section 0.2
+Format: <file>  ->  <commit message>
+Paste the message when committing each file.
 ================================================================================
 
-chore(scaffold): initial repo structure and packaging (Phase 0, Section 0.1)
+src/consilium/core/settings.py    feat(core): add pydantic-settings with env table, required secrets and critic-vs-director guard
 
-Initial commit of CONSILIUM, a clinical-reporting system for glaucoma
-screening support (multi-agent LLM pipeline + remote vision models +
-mandatory clinician review).
+src/consilium/core/errors.py      feat(core): add error hierarchy mapped to case statuses and RFC 7807 problem types
 
-Project documents:
-- AGENTS.md: contract & invariants (I-1..I-14) — highest precedence
-- doc/ARCHITECTURE.md: end-to-end build specification
-- doc/SKILLS.md: task playbooks for recurring changes
-- impemantation_plane.txt: P0-P14 build plan broken into 3-5 sections each
-- Kimi.md: running project memory, updated at every completed section
+src/consilium/core/logging.py     feat(core): add structured JSON logging with PHI deny-key redaction
 
-Phase 0 / Section 0.1 — repository structure & packaging:
-- pyproject.toml: runtime deps (FastAPI, Pydantic v2, SQLAlchemy 2.x +
-  asyncpg + Alembic, LangGraph, OpenAI SDK, httpx, numpy/pillow/scipy,
-  PyYAML, Jinja2, PyJWT, OTel, prometheus-client, langfuse) + dev group
-  (pytest, pytest-asyncio, pytest-cov, hypothesis, respx, ruff, mypy,
-  import-linter); hatchling src-layout; pytest/ruff/mypy/coverage config
-- uv.lock committed (pinned deps, per AGENTS.md section 6)
-- Full directory tree per ARCHITECTURE.md section 4.1:
-  configs/ (+ guardrails rails & policies), prompts/ (6 components),
-  deploy/vision_endpoint/, src/consilium/ (17 subpackages), frontend/,
-  training/, tests/ (unit/contract/integration/adversarial/e2e/live),
-  scripts/, data/ (gitignored, DVC pointers only)
-- .gitignore: data/ with .gitkeep exception, .env with .env.example
-  exception, caches, node artifacts
-- Removed hello-world main.py
+src/consilium/core/ids.py         feat(core): add injectable IdGen with UUID4 and deterministic fake
 
-Deliberately deferred (with stated reasons, per AGENTS.md section 21):
-- Training dependency group (torch/transformers/MLflow/DVC) -> Phase 2
-- NeMo Guardrails dependency -> Phase 10
-- Coverage floor starts at 0 on the empty skeleton; raise-only (target 80
-  by Phase 9, per AGENTS.md section 20)
+src/consilium/core/clock.py       feat(core): add injectable Clock with system UTC and controllable fake
 
-Verified: uv sync --all-groups (exit 0), import consilium OK,
-pytest collects (0 tests yet; first tests land in sections 0.2/0.5).
+tests/unit/test_settings.py       test(core): cover settings parsing, env overrides, secret failures and vision-mode validation
+
+tests/unit/test_errors.py         test(core): cover error-to-status mapping and policy-violation status rules
+
+tests/unit/test_logging.py        test(core): cover JSON log emission and parametrized PHI key redaction
+
+tests/unit/test_ids_clock.py      test(core): cover UUID uniqueness, fake id sequences and clock determinism
+
+Kimi.md                           docs(memory): log section 0.2 completion in project memory
+
+commit_doc.txt                    docs(commit): refresh commit messages for section 0.2
+
 
 ================================================================================
-PUSH COMMANDS (for reference)
+SUGGESTED GROUPING (fewer commits, same result)
 ================================================================================
 
-git add -A
-git commit -F commit_doc.txt        # or paste the message above manually
-git push -u origin master
+# Core modules in one commit:
+git add src/consilium/core/
+git commit -m "feat(core): add settings, error hierarchy, JSON logging, ids and clock (Phase 0, Section 0.2)"
 
-NOTE: commit_doc.txt itself should NOT be committed. After committing,
-either delete it or add it to .gitignore. Suggested:
+# Tests in one commit:
+git add tests/unit/
+git commit -m "test(core): cover settings, errors, logging redaction, ids and clock"
 
-git add -A ':!commit_doc.txt'
+# Docs:
+git add Kimi.md commit_doc.txt
+git commit -m "docs: update project memory and commit notes for section 0.2"
+
+git push
