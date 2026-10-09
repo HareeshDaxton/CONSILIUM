@@ -1,0 +1,39 @@
+# CI pipeline (ARCHITECTURE.md §12): lint → typecheck → import-linter →
+# test (offline) → schema-snapshot check. Coverage floor enforced via pytest
+# addopts (pyproject.toml). `make test-live` NEVER runs here.
+name: ci
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --all-groups
+
+      - name: Lint (ruff)
+        run: |
+          uv run ruff check src tests scripts
+          uv run ruff format --check src tests scripts
+
+      - name: Typecheck (mypy --strict)
+        run: uv run mypy
+
+      - name: Import boundaries (import-linter)
+        run: uv run lint-imports --config importlinter.ini
+
+      - name: Test (offline — no network, fakes only)
+        run: uv run pytest -m "not live"
+
+      - name: Schema snapshot check
+        run: make schema-check
