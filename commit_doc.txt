@@ -1,40 +1,36 @@
 ================================================================================
-PER-FILE COMMIT MESSAGES — Phase 0, Section 0.4
+PER-FILE COMMIT MESSAGES — Phase 0, Section 0.5 (PHASE 0 COMPLETE)
 Format: <file>  ->  <commit message>
 ================================================================================
 
-Dockerfile                        build(docker): add slim CPU runtime image with cached uv layers (no torch, I-13)
+tests/conftest.py                 test(harness): add shared fixtures (fake clock, fake idgen, tmp object store, test settings)
 
-.dockerignore                     build(docker): keep the runtime image free of tests, docs and local artifacts
+scripts/make_fixtures.py          test(fixtures): add the deterministic synthetic-fixture generator
 
-docker-compose.yml                build(compose): add the dev stack (api, worker, postgres, minio, fake-vision)
+tests/fixtures/synthetic_notes.json    test(fixtures): add synthetic clinical-note fixtures (generated, no real patient data)
 
-.env.example                      build(env): document every ARCHITECTURE.md §8 variable with dev-safe defaults
+tests/fixtures/PROVENANCE.md      test(fixtures): record synthetic provenance per SKILLS.md convention
 
-src/consilium/api/main.py         feat(api): add /healthz placeholder app until Phase 11 builds the real one
+tests/unit/test_harness.py        test(harness): cover the shared fixtures and fixture-corpus guarantees
 
-scripts/worker_placeholder.py     feat(worker): add heartbeat placeholder until the Phase 9/11 job worker lands
+tests/integration/test_core_wiring.py  test(integration): prove core modules wire together offline
 
-scripts/fake_vision_server.py     feat(vision): add fake vision HTTP stub for the local stack (real canned modes in Phase 2)
+Kimi.md                           docs(memory): log section 0.5 and phase 0 completion in project memory
 
-Makefile                          build(make): wire up/down to docker compose
-
-Kimi.md                           docs(memory): log section 0.4 completion in project memory
-
-commit_doc.txt                    docs(commit): refresh commit messages for section 0.4
+commit_doc.txt                    docs(commit): refresh commit messages for section 0.5
 
 
 ================================================================================
 SUGGESTED GROUPING (fewer commits, same result)
 ================================================================================
 
-git add Dockerfile .dockerignore docker-compose.yml .env.example Makefile
-git commit -m "build(stack): add runtime image and dev compose stack with minio/postgres/fake-vision (Phase 0, Section 0.4)"
-
-git add src/consilium/api/main.py scripts/worker_placeholder.py scripts/fake_vision_server.py
-git commit -m "feat(stack): add api/worker/fake-vision placeholders for the compose topology"
+git add tests/ scripts/make_fixtures.py
+git commit -m "test(harness): add shared fixtures, synthetic-fixture generator and sample unit+integration tests (Phase 0, Section 0.5)"
 
 git add Kimi.md commit_doc.txt
-git commit -m "docs: update project memory and commit notes for section 0.4"
+git commit -m "docs: close out phase 0 in project memory"
 
 git push
+
+NOTE: Phase 0 is now complete — exit criterion "make ci green on skeleton" met
+(54 tests, ruff/mypy/import-linter clean, compose stack verified live).
