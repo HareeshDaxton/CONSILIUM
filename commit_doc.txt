@@ -1,46 +1,27 @@
 ================================================================================
-PER-FILE COMMIT MESSAGES — Phase 0, Section 0.2
+PER-FILE COMMIT MESSAGES — Phase 0, Section 0.3
 Format: <file>  ->  <commit message>
-Paste the message when committing each file.
 ================================================================================
 
-src/consilium/core/settings.py    feat(core): add pydantic-settings with env table, required secrets and critic-vs-director guard
+Makefile                          build(make): add the AGENTS.md §26 command surface with honest phase-gated stubs
 
-src/consilium/core/errors.py      feat(core): add error hierarchy mapped to case statuses and RFC 7807 problem types
+importlinter.ini                  build(imports): add the §4.2 module-boundary contracts for import-linter
 
-src/consilium/core/logging.py     feat(core): add structured JSON logging with PHI deny-key redaction
+.github/workflows/ci.yml          ci(github): add the merge-blocking pipeline (ruff, mypy, import-linter, offline tests, schema-check)
 
-src/consilium/core/ids.py         feat(core): add injectable IdGen with UUID4 and deterministic fake
+Kimi.md                           docs(memory): log section 0.3 completion in project memory
 
-src/consilium/core/clock.py       feat(core): add injectable Clock with system UTC and controllable fake
-
-tests/unit/test_settings.py       test(core): cover settings parsing, env overrides, secret failures and vision-mode validation
-
-tests/unit/test_errors.py         test(core): cover error-to-status mapping and policy-violation status rules
-
-tests/unit/test_logging.py        test(core): cover JSON log emission and parametrized PHI key redaction
-
-tests/unit/test_ids_clock.py      test(core): cover UUID uniqueness, fake id sequences and clock determinism
-
-Kimi.md                           docs(memory): log section 0.2 completion in project memory
-
-commit_doc.txt                    docs(commit): refresh commit messages for section 0.2
+commit_doc.txt                    docs(commit): refresh commit messages for section 0.3
 
 
 ================================================================================
 SUGGESTED GROUPING (fewer commits, same result)
 ================================================================================
 
-# Core modules in one commit:
-git add src/consilium/core/
-git commit -m "feat(core): add settings, error hierarchy, JSON logging, ids and clock (Phase 0, Section 0.2)"
+git add Makefile importlinter.ini .github/workflows/ci.yml
+git commit -m "build(ci): add Makefile, import-linter boundary contracts and the GitHub Actions gate (Phase 0, Section 0.3)"
 
-# Tests in one commit:
-git add tests/unit/
-git commit -m "test(core): cover settings, errors, logging redaction, ids and clock"
-
-# Docs:
 git add Kimi.md commit_doc.txt
-git commit -m "docs: update project memory and commit notes for section 0.2"
+git commit -m "docs: update project memory and commit notes for section 0.3"
 
 git push
