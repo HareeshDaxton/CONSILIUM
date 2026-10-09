@@ -5,7 +5,7 @@ section of `impemantation_plane.txt`. Each entry records in detail: what was
 done (files, key decisions), what was verified and how (exact commands), what
 was deferred or not verified, and any CLINICAL-REVIEW items.
 
-Current position: **Phase 0 COMPLETE (all 5 sections). Next: Phase 1, Section 1.1 (awaiting go-ahead).**
+Current position: **Phase 1 IN PROGRESS — Sections 1.1 + 1.2 done. Next: Section 1.3 note & context contracts (awaiting go-ahead).**
 
 ---
 
@@ -348,6 +348,109 @@ schema-check stub) is green on the skeleton: ruff clean, mypy --strict clean
 (25 files), import-linter 7/7 contracts kept, 54 tests passed, compose stack
 verified live (5 services healthy, /healthz responding). Ready for Phase 1 —
 schemas (Section 1.1 next, on your go-ahead).
+
+---
+
+## Phase 1 — Schemas (data contracts)
+
+Skill in force for the whole phase: `schema-change` (doc/SKILLS.md §2) —
+Strict base everywhere, enum values are persisted API (add, never rename),
+JSON-Schema snapshots arrive in Section 1.5 as the review artifact.
+
+### Section 1.1 — Strict base + enums ✅ DONE
+
+**Goal (from implementation plan):** `schemas/base.py` with the `Strict`
+base (`strict=True, extra="forbid", frozen=True`) and `schemas/enums.py`
+with all StrEnums per AGENTS.md §7, plus `CaseStatus` for the §4 state
+machine. Exit: unit tests (strictness, unknown-field rejection, frozen).
+
+**What was done — files created/changed**
+- `src/consilium/schemas/base.py` — `Strict(BaseModel)` with
+  `ConfigDict(strict=True, extra="forbid", frozen=True)`. Docstring records
+  why each flag exists (no coercion of LLM output, unknown fields = version
+  mismatch surfaced as error, frozen supports I-1 immutability).
+- `src/consilium/schemas/enums.py` — 10 StrEnums exactly per §7:
+  `Laterality` (OD/OS/UNKNOWN), `Role`, `AgentName` (note_extractor + 3 roles
+  + director + critic), `ScreeningTier`, `QualityFlag` (6 flags),
+  `FactSource`, `Confidence`, `ClaimKind`, `IssueType` (7 types), plus
+  `CaseStatus` — 20 states covering the full §4 state machine including the
+  three clinician-only terminal states and the three failure states.
+- `tests/unit/test_schemas_base_enums.py` — 14 tests: strict-mode rejection
+  of `"1"` for `int`, extra-field rejection, frozen mutation raises,
+  JSON round-trip, exact value-set assertions for every enum, and a
+  cross-check that `core/errors.py` `case_status` strings are valid
+  `CaseStatus` members.
+
+**Key decisions & reasons**
+- `CaseStatus` values are the UPPERCASE §4 names (`"PENDING_REVIEW"`, …) —
+  matches the status strings already used by `core/errors.py` from Section
+  0.2, so no reconciliation needed later; the test pins this alignment.
+- Enum values are treated as persisted API per the schema-change skill: the
+  module docstring states "add, never rename" because stored JSON/DB rows
+  carry these strings.
+- `schemas/` still imports nothing from the rest of the package (§5 hard
+  boundary) — the errors→CaseStatus coupling is tested from the test side,
+  not imported in schemas.
+
+**Verified (commands run)**
+- `uv run pytest -m "not live" -q` → 14/14 new tests pass.
+- Strictness probes: `_Probe(count="1")` → ValidationError; extra `bogus`
+  field → ValidationError; `probe.count = 2` → ValidationError (frozen).
+
+**Deferred / not verified:** none for this section.
+
+**CLINICAL-REVIEW items:** none.
+
+### Section 1.2 — Vision contracts ✅ DONE
+
+**Goal (from implementation plan):** `schemas/vision.py` with `ImageQuality`,
+`ClassifierOutput`, `MaskQC`, `Measurements`, `CDRMetrics`, `CADResult`,
+`RawVisionOutput` per AGENTS.md §7. Exit: unit tests incl. bounds, defaults,
+round-trips.
+
+**What was done — files created/changed**
+- `src/consilium/schemas/vision.py` — the 7 vision models, field-for-field
+  per §7 (ge/le/gt bounds included). Module docstring separates the two
+  families: `RawVisionOutput` = endpoint wire format (raw p + RLE masks +
+  revision pin, nothing interpreted, I-13); `CADResult` and parts = the
+  deterministic in-repo interpretation and the only CAD-number source LLMs
+  may reference (I-1).
+- `src/consilium/schemas/__init__.py` — re-exports of base + enums + vision
+  models with `__all__`; package docstring restates the §5 import boundary.
+- `tests/unit/test_schemas_vision.py` — 15 tests: probability/pixel/score
+  bounds, `cup_area_px == 0` allowed (healthy cup-less edge), float pixels
+  rejected, `mask_convention` default `"disc_includes_cup"`, `MaskQC.ok`
+  stored-not-derived, `CADResult` JSON round-trip + frozen + dumped JSON
+  shape (enums serialize as plain strings), `RawVisionOutput` round-trip.
+
+**Key decisions & reasons**
+- The `endpoint_revision` pin check is deliberately NOT in the schema: the
+  pin lives in `configs/models.yaml` (config, P2), and recorded fixtures
+  with old revisions must stay loadable in tests. The check belongs to the
+  `VisionClient` (P2) — documented on the model, asserted by a test
+  (`test_revision_pin_not_checked_in_schema`). This follows schema-change
+  step 4 (validators enforce invariants) by placing the invariant at the
+  boundary that owns the pin.
+- `MaskQC.ok` is a stored field (the AND is computed by vision code), not a
+  derived property — keeps the persisted JSON self-contained and matches §7.
+- `CDRMetrics` docstring carries the §8.2 warning: nested convention (disc
+  includes cup), `vertical` is PRIMARY, never apply the paper's rim-only
+  formula — so the caveat travels with the type everywhere it is used.
+
+**Verified (commands run)**
+- `uv run pytest -m "not live" -q` → **90 passed** (54 prior + 36 new).
+- `uv run ruff check src tests scripts` + `ruff format --check` → clean
+  (one C408 dict-literal nit found and fixed).
+- `uv run mypy` (strict) → clean, 28 source files.
+- `uv run lint-imports --config importlinter.ini` → 7/7 contracts kept
+  (schemas' isolation contract now has real modules to guard).
+
+**Deferred / not verified**
+- JSON-Schema snapshots are Section 1.5 (single snapshot pass over ALL
+  contracts, per plan) — these models are not yet snapshot-covered.
+- `make` not run (no binary); equivalent `uv run` commands verified.
+
+**CLINICAL-REVIEW items:** none.
 
 ---
 
