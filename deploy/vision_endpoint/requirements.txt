@@ -1,0 +1,6 @@
+# HF Inference Endpoint dependencies for the custom handler (Section 2.4).
+# Kept separate from the repo env: this is the deployed artifact's manifest.
+torch>=2.4
+transformers>=4.46,<5
+numpy>=1.26
+pillow>=10.4
