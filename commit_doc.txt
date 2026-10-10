@@ -1,73 +1,171 @@
 ================================================================================
-PER-FILE COMMIT MESSAGES — Phase 1, Sections 1.3 + 1.4 + 1.5 (PHASE 1 COMPLETE)
+PER-FILE COMMIT MESSAGES — Phase 2, Sections 2.1–2.5 (PHASE 2 COMPLETE)
 Format: <file>  ->  <commit message>
+Re-verified 2026-10-11: 258 tests passed, ruff/format/mypy/import-linter/
+schema-snapshot all clean.
 ================================================================================
 
---- Section 1.3 (note + context contracts) ---
+--- Section 2.1 (data pipeline) ---
 
-src/consilium/schemas/note.py          feat(schemas): add ClinicalNote and NoteExtraction contracts with untrusted-text caps
+training/data/manifest.py            feat(training): add image-record metadata manifest with content-hash data versioning
 
-src/consilium/schemas/context.py       feat(schemas): add Fact, GlobalContext and RoleContext with unique-ID invariants
+training/data/split.py               feat(training): add seeded patient-level split generator with leakage guard and dup check
 
-tests/unit/test_schemas_note_context.py    test(schemas): cover note bounds, extraction provenance, fact unions and context uniqueness
+training/data/download_refuge.py     feat(training): add offline REFUGE bootstrap CLI (instructions, checksum verify, manifest builder)
 
---- Section 1.4 (agent output + audit contracts) ---
+training/data/make_split.py          feat(training): add split-manifest CLI that re-checks leakage before writing
 
-src/consilium/schemas/agents.py        feat(schemas): add specialist and director contracts with NUMERIC-claim and disagreement rules
+training/data/DATASETS.md            docs(training): add dataset registry (REFUGE/FairVision/ORIGA), split policy and DVC runbook
 
-src/consilium/schemas/audit.py         feat(schemas): add Issue and CriticVerdict with the approved-iff-no-issues validator
+training/data/__init__.py            build(training): make training.data an importable package
 
-tests/unit/test_schemas_agents_audit.py    test(schemas): cover claim requirements, draft invariants and verdict consistency
+training/data/scripts/.gitkeep       chore(training): keep the data-scripts directory in git
 
---- Section 1.5 (fact IDs + snapshots) ---
+training/data/examples/example_metadata.json   test(training): commit synthetic metadata example (IDs only, never for training)
 
-src/consilium/context/facts.py         feat(context): add the F fact-ID constants as the single source of truth (ARCHITECTURE.md §5.6)
+training/data/examples/example_split.json      test(training): commit synthetic split-manifest example (IDs only, never for training)
 
-scripts/schema_snapshot.py             feat(contract): add JSON-Schema snapshot dump/check tooling derived from schemas.__all__
+tests/unit/test_data_split.py        test(training): cover split determinism, both-eyes-together and leakage (incl. 200-example property test)
 
-tests/contract/snapshots/              test(contract): commit JSON-Schema snapshots for all 21 contract models (21 files)
+--- Section 2.2 (training: SwinV2 + SegFormer) ---
 
-tests/contract/test_schema_snapshots.py    test(contract): fail CI on schema snapshot drift via the shared check script
+training/common/preprocessing.py     feat(training): add the single shared preprocessing spec (train/serve skew control)
 
-tests/unit/test_facts.py               test(context): pin every fact-ID constant to the §5.6 spec
+training/common/preprocessing_spec.json   feat(training): export the preprocessing spec JSON for the endpoint handler
 
-Makefile                               build(make): make schema-check a real gate and add the schema-snapshot target
+training/common/seed.py              feat(training): add seed-all helper for reproducible runs
 
-src/consilium/schemas/__init__.py      feat(schemas): re-export all contract models from the package root
+training/common/runs.py              feat(training): add git-SHA provenance helper for MLflow runs
 
---- housekeeping ---
+training/common/compat.py            fix(training): shim scipy's WDAC-blocked _direct DLL so transformers imports
 
-impemantation_plane.txt                docs(plan): mark sections 1.3-1.5 complete in the implementation plan
+training/common/dataset.py           feat(training): add manifest-driven fundus classification/segmentation torch datasets
 
-Kimi.md                                docs(memory): log sections 1.3-1.5 and phase 1 completion in project memory
+training/common/__init__.py          build(training): wire the compat shim into the training package
 
-commit_doc.txt                         docs(commit): refresh commit messages for sections 1.3 + 1.4 + 1.5
+training/classification/metrics.py   feat(training): add numpy AUROC/Brier/ECE/operating-point/reliability metrics
+
+training/classification/train.py     feat(training): add config-driven MLflow-logged SwinV2 fine-tuning entrypoint
+
+training/classification/configs/refuge_swinv2_small.yaml   feat(training): add REFUGE swinv2-small run config
+
+training/classification/__init__.py  build(training): make training.classification an importable package
+
+training/segmentation/metrics.py     feat(training): add Dice/IoU/vCDR-MAE segmentation metrics (vCDR delegates to vision/cdr.py)
+
+training/segmentation/train.py       feat(training): add config-driven MLflow-logged SegFormer mit-b0 fine-tuning entrypoint
+
+training/segmentation/configs/refuge_segformer_b0.yaml     feat(training): add REFUGE segformer-b0 run config
+
+training/segmentation/__init__.py    build(training): make training.segmentation an importable package
+
+training/__init__.py                 build(training): make training an importable top-level package
+
+tests/unit/test_preprocessing_spec.py    test(training): pin the preprocessing spec file to the code
+
+tests/unit/test_training_metrics.py  test(training): cover metric math on known values incl. degenerate cases
+
+tests/unit/test_training_smoke.py    test(training): cover tiny-model fwd/bwd, MLflow run logging and dataset loading offline
+
+--- Section 2.3 (in-repo interpretation: calibration, tiers, quality, CDR) ---
+
+configs/thresholds.yaml              feat(config): add screening tiers, quality gates and verifier tolerances with CLINICAL-REVIEW markers
+
+configs/models.yaml                  feat(config): add endpoint revision pin and calibrator seam (identity temperature placeholder)
+
+src/consilium/vision/config.py       feat(vision): add pydantic loaders for thresholds.yaml and models.yaml (extra=forbid)
+
+src/consilium/vision/calibration.py  feat(vision): add temperature scaling on raw logits (fit on validation only, AGENTS.md §8.3)
+
+src/consilium/vision/rle.py          feat(vision): add RLE mask codec with strict sum/empty-mask validation
+
+src/consilium/vision/postprocess.py  feat(vision): add largest-component, hole-fill and recorded cup-within-disc clip
+
+src/consilium/vision/cdr.py          feat(vision): add vertical CDR (primary) + area-based CDR (secondary) under the nested-mask convention (§8.2)
+
+src/consilium/vision/quality.py      feat(vision): add client-side prechecks, post-inference quality scoring and mask QC
+
+tests/unit/test_vision_cdr.py        test(vision): cover CDR on synthetic masks at known ratios incl. degenerate and tilted cases
+
+tests/unit/test_vision_calibration.py    test(vision): cover temperature-scaling math and fit-on-validation behavior
+
+tests/unit/test_vision_quality.py    test(vision): cover precheck rejection reasons, quality flags and mask-QC combinations
+
+--- Section 2.4 (endpoint packaging + custom handler) ---
+
+training/endpoint_packaging/export.py    feat(training): add endpoint package exporter with content-hash revision pinning
+
+training/endpoint_packaging/__init__.py  build(training): make training.endpoint_packaging an importable package
+
+deploy/vision_endpoint/handler.py    feat(deploy): add HF endpoint custom handler returning raw logits + RLE masks only (lazy torch)
+
+deploy/vision_endpoint/requirements.txt  build(deploy): pin endpoint-side dependencies
+
+deploy/vision_endpoint/__init__.py   build(deploy): make the endpoint handler an importable package
+
+tests/unit/test_endpoint_packaging.py    test(vision): cover revision determinism, export manifest, preprocessing and RLE parity
+
+--- Section 2.5 (VisionClient + vision.pipeline) ---
+
+src/consilium/vision/client.py       feat(vision): add VisionClient protocol and retry policy with wall-clock budget (fail closed, I-5)
+
+src/consilium/vision/client_http.py  feat(vision): add HTTP VisionClient with bearer auth, transient classification and revision-pin check
+
+src/consilium/vision/client_fake.py  feat(vision): add deterministic fake client keyed by sha256 with cold-start and failure modes
+
+src/consilium/vision/pipeline.py     feat(vision): add run(image)->CADResult pipeline with defense-in-depth pin re-check and actionable gate failures
+
+scripts/fake_vision_server.py        feat(scripts): serve real fake fixtures with models.yaml revision and FAKE_VISION_COLD_START_CALLS knob
+
+tests/unit/test_vision_client.py     test(vision): cover HTTP contract, retries, pin mismatch, malformed payload and budget exhaustion
+
+tests/unit/test_vision_pipeline.py   test(vision): cover happy path, cold-start recovery, pin mismatch and fail-closed gates
+
+--- shared / housekeeping ---
+
+pyproject.toml                       build(deps): add training group (torch, transformers<5, mlflow, dvc) and pytest pythonpath
+
+uv.lock                              build(deps): lock the training dependency group
+
+.gitignore                           fix(git): ignore mlruns and dvc cache/tmp only; keep committed .dvc pointers/config
+
+AGENTS.md                            docs(agents): add §27 mandatory RTK shell-execution rules
+
+doc/SESSION_START.md                 docs(session): add the session-start prompt (resume protocol, token discipline, RTK rules)
+
+Kimi.md                              docs(memory): log sections 2.1-2.5 and Phase 2 completion in project memory
+
+commit_doc.txt                       docs(commit): refresh per-file commit messages for Phase 2 (2.1-2.5)
+
+requirements.txt (repo root)         DO NOT COMMIT — empty untracked file, appears accidental; delete it
 
 
 ================================================================================
-SUGGESTED GROUPING (fewer commits, same result)
+SUGGESTED GROUPING (fewer commits, same result — run in this order)
 ================================================================================
 
-git add src/consilium/schemas/note.py src/consilium/schemas/context.py tests/unit/test_schemas_note_context.py
-git commit -m "feat(schemas): add note and context contracts with unique-ID invariants (Phase 1, Section 1.3)"
+git add training/data tests/unit/test_data_split.py
+git commit -m "feat(training): add REFUGE data pipeline — manifest, patient-level splitter, bootstrap CLI, dataset registry (Phase 2, Section 2.1)"
 
-git add src/consilium/schemas/agents.py src/consilium/schemas/audit.py tests/unit/test_schemas_agents_audit.py
-git commit -m "feat(schemas): add agent output and audit contracts (Phase 1, Section 1.4)"
+git add training/common training/classification training/segmentation training/__init__.py tests/unit/test_preprocessing_spec.py tests/unit/test_training_metrics.py tests/unit/test_training_smoke.py
+git commit -m "feat(training): add SwinV2/SegFormer fine-tuning with shared preprocessing spec and MLflow provenance (Phase 2, Section 2.2)"
 
-git add src/consilium/context/facts.py scripts/schema_snapshot.py tests/contract tests/unit/test_facts.py Makefile src/consilium/schemas/__init__.py
-git commit -m "feat(contract): add fact-ID constants and JSON-Schema snapshot gate (Phase 1, Section 1.5)"
+git add configs/thresholds.yaml configs/models.yaml src/consilium/vision/config.py src/consilium/vision/calibration.py src/consilium/vision/rle.py src/consilium/vision/postprocess.py src/consilium/vision/cdr.py src/consilium/vision/quality.py tests/unit/test_vision_cdr.py tests/unit/test_vision_calibration.py tests/unit/test_vision_quality.py
+git commit -m "feat(vision): add in-repo interpretation — calibration, tiers, quality gates, CDR, RLE, mask post-processing (Phase 2, Section 2.3)"
 
-git add impemantation_plane.txt Kimi.md commit_doc.txt
-git commit -m "docs: log phase 1 completion, plan status and commit messages"
+git add training/endpoint_packaging deploy/vision_endpoint tests/unit/test_endpoint_packaging.py
+git commit -m "feat(deploy): add endpoint packaging exporter and HF custom handler with revision pinning (Phase 2, Section 2.4)"
 
+git add src/consilium/vision/client.py src/consilium/vision/client_http.py src/consilium/vision/client_fake.py src/consilium/vision/pipeline.py scripts/fake_vision_server.py tests/unit/test_vision_client.py tests/unit/test_vision_pipeline.py
+git commit -m "feat(vision): add VisionClient (HTTP + fake) with revision pin, cold-start retries and CAD pipeline (Phase 2, Section 2.5)"
 
-================================================================================
-VERIFICATION STATE AT TIME OF WRITING
-================================================================================
-pytest -m "not live"    -> 137 passed (90 prior + 47 new)
-ruff check + format     -> clean (50 files)
-mypy --strict src/      -> clean (33 source files)
-import-linter           -> 7/7 contracts kept
-schema_snapshot --check -> up to date (21 models)
-drift probe             -> deliberate field change FAILED the check (exit 1), reverted green
-================================================================================
+git add pyproject.toml uv.lock .gitignore
+git commit -m "build(deps): add the training dependency group and fix dvc/mlruns ignores"
+
+git add AGENTS.md doc/SESSION_START.md
+git commit -m "docs: add RTK shell rules (§27) and the session-start prompt"
+
+git add Kimi.md commit_doc.txt
+git commit -m "docs: log Phase 2 completion and refresh commit messages"
+
+git push
