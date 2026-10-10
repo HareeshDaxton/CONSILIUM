@@ -1,0 +1,27 @@
+# CONSILIUM model/endpoint pins (AGENTS.md §8.0). Revision pinning is a
+# fail-closed control: every endpoint response's endpoint_revision must equal
+# endpoint.pinned_revision, else VISION_UNAVAILABLE (mismatch). Training
+# packaging (Section 2.4) bumps the pin deliberately, never silently.
+version: "0.1.0"
+
+endpoint:
+  # PLACEHOLDER until the dev HF Inference Endpoint is deployed (Section 2.4
+  # manual step). The fake client and local stub server report this value.
+  pinned_revision: "local-stub-not-deployed"
+
+classifier:
+  model_id: "microsoft/swinv2-small-patch4-window8-256"
+  revision: "not-trained-yet"      # set by training/endpoint_packaging (2.4)
+  mlflow_run_id: "none"
+
+segmenter:
+  model_id: "nvidia/mit-b0"
+  revision: "not-trained-yet"
+  mlflow_run_id: "none"
+
+calibration:
+  method: "temperature_scaling"
+  # PLACEHOLDER: 1.0 = identity until fitted on VALIDATION data only (§8.3)
+  # via training/calibration. Never fitted on test.
+  temperature: 1.0
+  fitted_on: "not-fitted"
