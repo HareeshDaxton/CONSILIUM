@@ -1,0 +1,21 @@
+# SegFormer (mit-b0) disc/cup segmentation — REFUGE run config (Section 2.2).
+# Classes: 0 background, 1 disc rim, 2 cup. Nested convention (disc includes
+# cup) matches CDRMetrics.mask_convention = "disc_includes_cup" (§8.1).
+data:
+  metadata_manifest: training/data/manifests/refuge_metadata.json
+  split_manifest: training/data/splits/refuge_v1.json
+  images_root: data/refuge/images
+model:
+  pretrained: true
+  model_id: nvidia/mit-b0
+  tiny: false
+training:
+  epochs: 40
+  batch_size: 4
+  lr: 0.00006
+  weight_decay: 0.01
+  seed: 20240901
+  num_workers: 0
+mlflow:
+  tracking_uri: sqlite:///./mlruns/mlflow.db  # MLflow 3: file store is deprecated; sqlite is the local backend
+  experiment: consilium-segmentation
