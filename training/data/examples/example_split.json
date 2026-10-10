@@ -1,0 +1,74 @@
+{
+  "name": "synthetic_example_v1",
+  "seed": 20240901,
+  "ratios": {
+    "train": 0.7,
+    "val": 0.15,
+    "test": 0.15
+  },
+  "splits": {
+    "train": [
+      "synthetic-2eye-od",
+      "synthetic-2eye-os",
+      "synthetic-g00",
+      "synthetic-g01",
+      "synthetic-g02",
+      "synthetic-n00",
+      "synthetic-n01",
+      "synthetic-n02",
+      "synthetic-n04",
+      "synthetic-n05",
+      "synthetic-n08",
+      "synthetic-n09"
+    ],
+    "val": [
+      "synthetic-g03",
+      "synthetic-n06",
+      "synthetic-n07"
+    ],
+    "test": [
+      "synthetic-n03"
+    ]
+  },
+  "patient_splits": {
+    "train": [
+      "synthetic-p2eye",
+      "synthetic-pg00",
+      "synthetic-pg01",
+      "synthetic-pg02",
+      "synthetic-pn00",
+      "synthetic-pn01",
+      "synthetic-pn02",
+      "synthetic-pn04",
+      "synthetic-pn05",
+      "synthetic-pn08",
+      "synthetic-pn09"
+    ],
+    "val": [
+      "synthetic-pg03",
+      "synthetic-pn06",
+      "synthetic-pn07"
+    ],
+    "test": [
+      "synthetic-pn03"
+    ]
+  },
+  "metadata_hash": "f91344482bb82681781a4c1e0697df7e2e01f59463cdd224ce8db5bd7df325ff",
+  "label_counts": {
+    "train": {
+      "glaucoma": 3,
+      "non_glaucoma": 9,
+      "unlabeled": 0
+    },
+    "val": {
+      "glaucoma": 1,
+      "non_glaucoma": 2,
+      "unlabeled": 0
+    },
+    "test": {
+      "glaucoma": 0,
+      "non_glaucoma": 1,
+      "unlabeled": 0
+    }
+  }
+}
