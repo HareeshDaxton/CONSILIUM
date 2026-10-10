@@ -1,0 +1,150 @@
+{
+  "dataset": "SYNTHETIC-EXAMPLE",
+  "note": "Synthetic example for tests/docs only — never for training. No real patient data.",
+  "records": [
+    {
+      "image_id": "synthetic-g00",
+      "patient_id": "synthetic-pg00",
+      "label": 1,
+      "laterality": null,
+      "image_sha256": null,
+      "mask_path": null,
+      "source_dataset": "REFUGE"
+    },
+    {
+      "image_id": "synthetic-g01",
+      "patient_id": "synthetic-pg01",
+      "label": 1,
+      "laterality": null,
+      "image_sha256": null,
+      "mask_path": null,
+      "source_dataset": "REFUGE"
+    },
+    {
+      "image_id": "synthetic-g02",
+      "patient_id": "synthetic-pg02",
+      "label": 1,
+      "laterality": null,
+      "image_sha256": null,
+      "mask_path": null,
+      "source_dataset": "REFUGE"
+    },
+    {
+      "image_id": "synthetic-g03",
+      "patient_id": "synthetic-pg03",
+      "label": 1,
+      "laterality": null,
+      "image_sha256": null,
+      "mask_path": null,
+      "source_dataset": "REFUGE"
+    },
+    {
+      "image_id": "synthetic-n00",
+      "patient_id": "synthetic-pn00",
+      "label": 0,
+      "laterality": null,
+      "image_sha256": null,
+      "mask_path": null,
+      "source_dataset": "REFUGE"
+    },
+    {
+      "image_id": "synthetic-n01",
+      "patient_id": "synthetic-pn01",
+      "label": 0,
+      "laterality": null,
+      "image_sha256": null,
+      "mask_path": null,
+      "source_dataset": "REFUGE"
+    },
+    {
+      "image_id": "synthetic-n02",
+      "patient_id": "synthetic-pn02",
+      "label": 0,
+      "laterality": null,
+      "image_sha256": null,
+      "mask_path": null,
+      "source_dataset": "REFUGE"
+    },
+    {
+      "image_id": "synthetic-n03",
+      "patient_id": "synthetic-pn03",
+      "label": 0,
+      "laterality": null,
+      "image_sha256": null,
+      "mask_path": null,
+      "source_dataset": "REFUGE"
+    },
+    {
+      "image_id": "synthetic-n04",
+      "patient_id": "synthetic-pn04",
+      "label": 0,
+      "laterality": null,
+      "image_sha256": null,
+      "mask_path": null,
+      "source_dataset": "REFUGE"
+    },
+    {
+      "image_id": "synthetic-n05",
+      "patient_id": "synthetic-pn05",
+      "label": 0,
+      "laterality": null,
+      "image_sha256": null,
+      "mask_path": null,
+      "source_dataset": "REFUGE"
+    },
+    {
+      "image_id": "synthetic-n06",
+      "patient_id": "synthetic-pn06",
+      "label": 0,
+      "laterality": null,
+      "image_sha256": null,
+      "mask_path": null,
+      "source_dataset": "REFUGE"
+    },
+    {
+      "image_id": "synthetic-n07",
+      "patient_id": "synthetic-pn07",
+      "label": 0,
+      "laterality": null,
+      "image_sha256": null,
+      "mask_path": null,
+      "source_dataset": "REFUGE"
+    },
+    {
+      "image_id": "synthetic-n08",
+      "patient_id": "synthetic-pn08",
+      "label": 0,
+      "laterality": null,
+      "image_sha256": null,
+      "mask_path": null,
+      "source_dataset": "REFUGE"
+    },
+    {
+      "image_id": "synthetic-n09",
+      "patient_id": "synthetic-pn09",
+      "label": 0,
+      "laterality": null,
+      "image_sha256": null,
+      "mask_path": null,
+      "source_dataset": "REFUGE"
+    },
+    {
+      "image_id": "synthetic-2eye-od",
+      "patient_id": "synthetic-p2eye",
+      "label": 0,
+      "laterality": "OD",
+      "image_sha256": null,
+      "mask_path": null,
+      "source_dataset": "REFUGE"
+    },
+    {
+      "image_id": "synthetic-2eye-os",
+      "patient_id": "synthetic-p2eye",
+      "label": 0,
+      "laterality": "OS",
+      "image_sha256": null,
+      "mask_path": null,
+      "source_dataset": "REFUGE"
+    }
+  ]
+}
