@@ -1,0 +1,23 @@
+# SwinV2-small binary glaucoma classifier — REFUGE run config (Section 2.2).
+# Model policy (AGENTS.md §8.1): small variant first; a larger backbone needs a
+# measured gain in a stored MLflow run. Threshold/tier selection happens on the
+# VALIDATION split in Section 2.3 — never on test.
+data:
+  metadata_manifest: training/data/manifests/refuge_metadata.json
+  split_manifest: training/data/splits/refuge_v1.json
+  images_root: data/refuge/images
+  # data_version is recorded automatically from the metadata content hash.
+model:
+  pretrained: true
+  model_id: microsoft/swinv2-small-patch4-window8-256
+  tiny: false
+training:
+  epochs: 20
+  batch_size: 8
+  lr: 0.00005
+  weight_decay: 0.01
+  seed: 20240901
+  num_workers: 0
+mlflow:
+  tracking_uri: sqlite:///./mlruns/mlflow.db  # MLflow 3: file store is deprecated; sqlite is the local backend
+  experiment: consilium-classification
