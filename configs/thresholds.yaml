@@ -1,0 +1,30 @@
+# CONSILIUM thresholds — versioned WITH the models (AGENTS.md §8.3).
+# Changing any value here is a model-version change (schema-change skill applies).
+version: "0.1.0"
+
+screening_tiers:
+  # CLINICAL-REVIEW: PLACEHOLDER cutoffs. Must be chosen on VALIDATION data to
+  # meet a stated operating point (e.g. target sensitivity) and signed off by
+  # the clinical co-author before any real use. Frozen afterwards.
+  intermediate_at: 0.30  # p_calibrated >= this → INTERMEDIATE
+  high_at: 0.70          # p_calibrated >= this → HIGH
+
+image_precheck:
+  max_bytes: 20000000            # 20 MB upload cap
+  allowed_formats: ["PNG", "JPEG"]
+  min_resolution_px: 256         # min(width, height) floor — cheap garbage filter
+
+post_inference_quality:
+  # CLINICAL-REVIEW: heuristic thresholds on 0..1-normalized RGB; tune on data.
+  underexposed_below: 0.12       # mean intensity below → UNDEREXPOSED
+  overexposed_above: 0.90        # mean intensity above → OVEREXPOSED
+  blur_laplacian_var_below: 0.0002  # Laplacian variance below → BLURRED
+  fundus_red_blue_margin: 0.05   # mean(R)-mean(B) below → NOT_FUNDUS
+  min_disc_area_fraction: 0.005  # disc area / image area outside range → DISC_NOT_VISIBLE
+  max_disc_area_fraction: 0.30
+
+numeric_tolerances:
+  # Deterministic verifier (P7): |claim numeric_value - fact value| must be
+  # within these. Loosening them to pass a test is forbidden (AGENTS.md §26.4).
+  cdr: 0.02
+  probability: 0.01
