@@ -890,3 +890,78 @@ make up / down    # docker compose stack (api, postgres, object store, fake visi
 - No PHI, secrets, or data artifacts committed.
 - Docs/README/config comments reflect the change.
 - Summary states: what changed, what was verified and how, what was *not* verified, and any `CLINICAL-REVIEW` items.
+
+<!-- rtk-instructions v2 -->
+# RTK
+
+Prefix every shell command with `rtk`: `rtk git status`, `rtk cargo test`,
+`rtk npm run build`, `rtk ls src/`. Keep the prefix inside chains:
+`rtk git add . && rtk git commit -m "msg"`. Commands RTK has no filter for
+run as-is, so the prefix is always safe.
+
+# Command output
+
+Command output here is condensed to save tokens, keeping every signal and
+dropping costly noise. Treat it as the complete result: run commands
+normally, and batch related commands into one call to avoid extra turns.
+Truncated results state their recovery path in their own output. Re-run a
+command as `rtk proxy <cmd>` only when its result is unusable: empty when
+output was clearly expected, contradicting its exit code, or garbled.
+
+## About RTK
+
+RTK (Rust Token Killer) is a CLI proxy that filters command output to save
+tokens; behavior and exit code are unchanged.
+
+- `rtk gain` / `rtk gain --history` — token savings, overall and per command.
+- `rtk proxy <cmd>` — run a command unfiltered, still tracked.
+- `RTK_DISABLED=1 <cmd>` — skip RTK for one command.
+- `rtk discover` — find past commands RTK could have condensed.
+<!-- /rtk-instructions -->
+
+
+## 27 SHELL COMMAND EXECUTION — RTK (MANDATORY)
+
+### 27.1 Mandatory RTK Usage
+
+- Before executing any shell command, use `rtk` as the command prefix wherever RTK supports the command.
+- Examples:
+  - `rtk git status`
+  - `rtk git diff`
+  - `rtk uv run pytest`
+  - `rtk uv run ruff check src/`
+  - `rtk uv run mypy --strict src/`
+  - `rtk docker compose ps`
+  - `rtk ls src/consilium/`
+- For command chains, prefix each command individually where required. Do not assume that prefixing the first command automatically applies RTK to subsequent commands.
+- Use Windows-compatible commands and paths. Do not assume Unix utilities such as `ls`, `cat`, `grep`, or `tail` are installed directly in Windows CMD.
+
+### 27.2 RTK Output Handling
+
+- Treat RTK's condensed output as the default result.
+- Use `rtk proxy <command>` only when the condensed output is missing expected information, is garbled, or contradicts the command's exit status.
+- Never disable RTK merely to obtain verbose output unless there is a concrete debugging reason.
+- Preserve the original command's exit status and investigate failures instead of assuming a command succeeded.
+- RTK is an output-filtering tool, not a replacement for the underlying command.
+
+### 27.3 Startup Verification
+
+At the beginning of each new Kimi Code session:
+
+1. Read this entire `SESSION_START.md` file before making changes.
+2. Check that RTK is available using `rtk --version`.
+3. Verify the current repository using `rtk git status`.
+4. If RTK reports that hooks are not installed, inspect the situation and recommend `rtk init -g` if appropriate. Do not silently assume automatic hooks are active.
+5. If a command fails because RTK cannot execute it, diagnose the issue. Use the underlying command without RTK only when necessary, and report why.
+
+### 27.4 Project Safety and Development Rules
+
+- Follow `AGENTS.md` as the primary repository instruction contract and respect its precedence rules.
+- Do not modify application code, configuration, schemas, tests, or documentation merely to verify RTK.
+- Never claim RTK is active or functioning correctly without checking the actual command output.
+- Do not run destructive Git commands or commit changes unless explicitly requested.
+- Continue normal development after verification; RTK must not interfere with the project's testing, linting, type checking, or CI requirements.
+
+### Session Continuity
+
+These instructions apply to every fresh Kimi Code session. At session startup, confirm that you have read `SESSION_START.md` and are following its RTK requirements. If any instruction conflicts with `AGENTS.md`, follow the repository's documented precedence rules and explain the conflict before proceeding.
