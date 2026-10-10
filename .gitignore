@@ -9,11 +9,15 @@ wheels/
 # Virtual environments
 .venv
 
-# Data & artifacts (DVC pointers only — AGENTS.md §5)
-data/
+# Data & artifacts (AGENTS.md §5: gitignored; DVC-tracked pointers only).
+# NOTE: *.dvc pointer files and .dvc/config are COMMITTED on purpose — only
+# the raw data and dvc cache stay out of git (repo-root data/ only —
+# training/data/ is CODE: dataset manifests, split logic, download helpers).
+/data/
 !data/.gitkeep
-*.dvc
-.dvc/
+.dvc/cache/
+.dvc/tmp/
+mlruns/
 
 # Secrets / local env
 .env

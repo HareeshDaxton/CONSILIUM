@@ -53,6 +53,16 @@ dev = [
     "import-linter>=2.1",
     "types-pyyaml>=6.0",
 ]
+# Phase 2 vision-training stack (AGENTS.md §6). NEVER imported by serving code
+# (§5: training/ and src/consilium are separate worlds); kept out of the
+# api/worker image so it stays lean (I-13). Torch-using tests skip gracefully
+# when this group is not installed.
+training = [
+    "torch>=2.4",           # SwinV2 + SegFormer fine-tuning
+    "transformers>=4.46,<5",  # HF pretrained backbones + configs (v5 pulls sklearn into the modeling import path — pinned to 4.x)
+    "mlflow>=2.17",         # experiment tracking: every artifact has a run ID (§6)
+    "dvc>=3.55",            # data tracking for gitignored data/ (§6)
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -66,6 +76,8 @@ package = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Repo root on sys.path so tests can import the training/ package (P2).
+pythonpath = ["."]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 markers = [
@@ -90,7 +102,7 @@ exclude_also = [
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-src = ["src", "tests"]
+src = ["src", "tests", "training", "scripts"]
 
 [tool.ruff.lint]
 select = [
@@ -112,6 +124,7 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S106", "S105"]   # fixture tokens/keys in tests are synthetic
 "scripts/**" = ["T201"]
+"training/**" = ["T201", "S311"]  # CLI prints; seeded non-crypto RNG is the point
 
 [tool.mypy]
 mypy_path = "src"
