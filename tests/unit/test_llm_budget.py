@@ -7,6 +7,7 @@ never truncated. Offline only, via FakeLLMClient.
 from typing import Any
 
 import pytest
+from tests.unit.test_llm_client import GEN_KW, KEY, MESSAGES, NOTE_PAYLOAD, TAGS
 
 from consilium.core.errors import AgentFailure
 from consilium.core.settings import Settings
@@ -14,7 +15,6 @@ from consilium.llm.budget import TokenBudget
 from consilium.llm.client_fake import CannedCall, CannedResponse, FakeLLMClient, FakeMode
 from consilium.llm.retry import LLMRetryPolicy, generate_structured, generate_with_retry
 from consilium.schemas.note import ClinicalNote
-from tests.unit.test_llm_client import GEN_KW, KEY, MESSAGES, NOTE_PAYLOAD, TAGS
 
 FAST = LLMRetryPolicy(total_budget_s=5.0, initial_backoff_s=0.0, max_backoff_s=0.0)
 
@@ -58,7 +58,9 @@ async def test_budget_overflow_fails_closed_in_structured_call() -> None:
     client = _client(CannedCall(FakeMode.VALID, NOTE_PAYLOAD))
     budget = TokenBudget(limit_tokens=1)
     with pytest.raises(AgentFailure) as exc:
-        await generate_structured(client, MESSAGES, ClinicalNote, tags=TAGS, budget=budget, **GEN_KW)
+        await generate_structured(
+            client, MESSAGES, ClinicalNote, tags=TAGS, budget=budget, **GEN_KW
+        )
     assert exc.value.reason == "LLM_TOKEN_BUDGET_EXCEEDED"
 
 
