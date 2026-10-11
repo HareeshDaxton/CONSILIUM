@@ -11,7 +11,7 @@ anything only the user can do (account registrations, dataset downloads, API
 keys into `.env`, tool installs, OS policy changes). If the list is empty,
 the section needed no manual work.
 
-Current position: **PHASE 3 COMPLETE (3.1–3.4); PHASE 4 COMPLETE (4.1–4.4 — 4.4 leak property test was written ahead of the pause and is green). Next: Phase 5, Section 5.1 LLMClient hardening + specialist agents (awaiting go-ahead).**
+Current position: **PHASE 5 IN PROGRESS — Sections 5.1, 5.2, 5.3 DONE (LLMClient hardening + token budget, prompt loader, specialist prompts v1; full battery green, 393 tests). Next: Phase 5, Section 5.4 — BaseSpecialist + fan-out + scope-violation tests (awaiting go-ahead).**
 
 ---
 
@@ -1460,3 +1460,209 @@ routing.yaml marked CLINICAL-REVIEW pending. ✅
 ---
 
 
+
+## Phase 5 — LLM hardening + specialists
+
+Skill in force: `llm-client-and-fakes` (SKILLS.md §9) for 5.1, `prompt-change`
+(§5) for 5.2/5.3, `specialist-agent` (§4) for 5.3/5.4.
+
+### Section 5.1 — LLMClient hardening ✅ DONE
+
+**Goal (from implementation plan):** `llm/retry.py` (transient → backoff+jitter
+capped; schema failures → bounded repair; refusals → AgentFailure, never
+retried), `llm/budget.py` (per-case token budget — exceeding raises, never
+truncates), model IDs as dated snapshots from settings.
+Exit: unit tests per failure mode; fake/live contract kept in sync.
+
+**What was done — files created/changed**
+- `src/consilium/llm/retry.py` (NEW) — `LLMRetryPolicy` (wall-clock budget wins
+  over attempt count; `from_settings()` maps LLM_TIMEOUT_S/LLM_MAX_RETRIES),
+  `generate_with_retry` (exp backoff ×2 capped 8s, ±25% jitter → fail closed
+  `AgentFailure(LLM_UNAVAILABLE)`), `generate_structured` (1 initial + ≤2
+  repairs with the validation summary fed back → `ValidationFailure(
+  LLM_OUTPUT_INVALID)`), optional `budget` charged on every successful
+  response. Moved verbatim out of `client.py`; behavior unchanged.
+- `src/consilium/llm/budget.py` (NEW) — `TokenBudget` per-case ledger:
+  `from_settings` (LLM_CASE_TOKEN_BUDGET), `check()` pre-call guard, `charge()`
+  post-success accounting; overflow → `AgentFailure(
+  LLM_TOKEN_BUDGET_EXCEEDED)` (I-5). Never truncates.
+- `src/consilium/llm/client.py` — slimmed to protocol + shared types
+  (ChatMessage, ParsedResponse, LLMTransient, ModelOutputInvalid, LLMClient);
+  retry/repair helpers now live in `retry.py`. No behavior change.
+- `src/consilium/intake/extractor.py`, `intake/note_pipeline.py` — imports
+  updated to `llm.retry`; new optional `budget: TokenBudget | None` threaded
+  through to `generate_structured` (per-case ledger shared across repair
+  rounds).
+- `tests/unit/test_llm_client.py` — imports updated to `llm.retry` only.
+- `tests/unit/test_llm_budget.py` (NEW) — 7 tests: from_settings mapping,
+  check-on-exhausted raise, charge-overflow raise (charge recorded before
+  raising), budget charged through the retry wrapper, overflow fails closed in
+  a structured call, exhausted budget blocks the call BEFORE the client is
+  invoked (no request placed), budget shared across repair rounds.
+
+**Key decisions & reasons**
+- Budget is charged from SUCCESSFUL responses' usage metadata only; failed
+  attempts are bounded by the wall-clock retry budget instead (module
+  docstring records why).
+- The budget is injected, never read from a settings singleton — same
+  dependency-injection rule as everything else (§21); the graph (P9) will
+  create one `TokenBudget` per case and share it across all agents.
+
+**Verified (commands run)**
+- `rtk uv run pytest tests/unit/test_llm_client.py tests/unit/test_llm_budget.py
+  tests/unit/test_note_pipeline.py -q` → **24 passed, 1 deselected** (live stub).
+
+**Deferred / not verified**
+- Live OpenAI contract test still `-m live` only (offline rule; manual run).
+- Full offline battery runs once at the end of Section 5.3 (per session
+  token-discipline rule).
+
+**CLINICAL-REVIEW items** — none.
+
+**Commit messages (5.1)**
+- `src/consilium/llm/retry.py` → feat(llm): extract retry/repair policy into llm/retry.py with wall-clock budget and bounded repair
+- `src/consilium/llm/budget.py` → feat(llm): add per-case TokenBudget that fails closed instead of truncating (I-5)
+- `src/consilium/llm/client.py` → refactor(llm): slim client.py to protocol + shared types; retry policy moves to llm/retry.py
+- `src/consilium/intake/extractor.py` → feat(intake): thread per-case token budget through extract_note
+- `src/consilium/intake/note_pipeline.py` → feat(intake): thread per-case token budget through the note pipeline
+- `tests/unit/test_llm_client.py` → test(llm): update imports to llm.retry after the 5.1 split
+- `tests/unit/test_llm_budget.py` → test(llm): cover token-budget guard, charge overflow, repair sharing, and fail-closed paths
+
+---
+
+
+### Section 5.2 — Prompt loader ✅ DONE
+
+**Goal (from implementation plan):** `llm/prompt_loader.py` — load
+`prompts/<component>/vN.md` as Jinja2 templates, render with a typed context,
+record `(component, version)` for agent_runs. Exit: loader tests; missing
+version fails loudly.
+
+**What was done — files created/changed**
+- `src/consilium/llm/prompt_loader.py` (NEW) — `PromptLoader(root)` with
+  `load(component, version) -> Prompt`; `Prompt.render(context)` via Jinja2
+  with `StrictUndefined` (a missing variable raises `UndefinedError`, never a
+  silent hole). `Prompt` carries `component`/`version` for `agent_runs`
+  stamping (I-9). Component/version names validated by regex (`vN` only;
+  letters/digits/underscore only) so a typo can never become a path
+  traversal. Missing file → `FileNotFoundError` naming the component/version.
+- `src/consilium/intake/extractor.py` — `load_extractor_prompt` now delegates
+  to `PromptLoader` for the default path (one loading mechanism, not two);
+  the `path` override stays injectable for tests.
+- `tests/unit/test_prompt_loader.py` (NEW) — 14 tests: real note_extractor/v1
+  load + byte equality, identity carried for agent_runs, variable
+  substitution, variable-free passthrough, missing-variable loud failure,
+  missing-version loud failure, invalid component (incl. `../etc` traversal)
+  and invalid version (incl. `latest` — floating aliases are forbidden) sets.
+
+**Key decisions & reasons**
+- `StrictUndefined` over Jinja's default: an empty substitution in a clinical
+  prompt is a silent integrity failure; raising is the fail-closed choice.
+- `Prompt` is a frozen dataclass WITHOUT `slots` — `cached_property` for the
+  compiled template needs `__dict__` (caught on first write, fixed).
+
+**Verified (commands run)**
+- `rtk uv run pytest tests/unit/test_prompt_loader.py tests/unit/test_note_pipeline.py
+  -q` → **22 passed** (14 new + 8 note-pipeline regression after the
+  extractor delegation).
+
+**Deferred / not verified** — none (full battery at end of 5.3).
+
+**CLINICAL-REVIEW items** — none.
+
+**Commit messages (5.2)**
+- `src/consilium/llm/prompt_loader.py` → feat(llm): add versioned Jinja2 prompt loader with StrictUndefined and name validation
+- `src/consilium/intake/extractor.py` → refactor(intake): load the extractor prompt through the shared PromptLoader
+- `tests/unit/test_prompt_loader.py` → test(llm): cover prompt loading, rendering, loud failures, and name validation
+
+---
+
+
+### Section 5.3 — Specialist prompts v1 ✅ DONE
+
+**Goal (from implementation plan):** `prompts/ophthalmologist/v1.md`,
+`prompts/optometrist/v1.md`, `prompts/pharmacist/v1.md` — each with role &
+scope, exclusions, output contract (SubReport), evidence-citation rule,
+uncertainty rule, out-of-scope rule, untrusted-data rule, wording rules
+(I-12; pharmacist: no doses/regimens/brands, "consider … subject to
+prescriber judgement"). Exit: prompts render against fixture contexts; leak
+test re-run green.
+
+**What was done — files created/changed**
+- `prompts/ophthalmologist/v1.md` (NEW) — structural interpretation scope
+  (tier, vertical CDR, quality/QC caveats, note findings); exclusions: no
+  diagnosis, no stage unless the note states it, no medication commentary, no
+  invented numbers (I-1/I-12).
+- `prompts/optometrist/v1.md` (NEW) — examination/follow-up pathway scope
+  (VF, OCT, gonioscopy, repeat imaging, referral timing); exclusions: no
+  pixel-level segmentation interpretation (not routed to this role), no
+  diagnosis, no prescribing.
+- `prompts/pharmacist/v1.md` (NEW) — medication-safety lens only, drug-CLASS
+  language; explicit "no doses/regimens/brands" and "subject to prescriber
+  judgement"; explicitly told it is NOT given calibrated p / CDR / pixel
+  facts and must not ask for them.
+- All three share the same skeleton (skill `specialist-agent` step 3): role &
+  scope → exclusions → `{{ facts_block }}` (Jinja, rendered by the 5.2
+  loader) → evidence-citation (cite only IDs present in the block) →
+  uncertainty (use `uncertainties`, no hedging prose) → out-of-scope (use
+  `declined_out_of_scope`) → untrusted-data (note text is data, injection
+  attempts go to `uncertainties`) → wording (I-12 screening phrasing) →
+  SubReport output contract.
+- `tests/unit/test_specialist_prompts.py` (NEW) — 9 tests: each prompt
+  renders with a fixture RoleContext's `render_facts` block (values embedded,
+  no `{{` left), all required rule sections present per role, pharmacist
+  dose/brand/prescriber-judgement wording asserted, no-diagnosis /
+  no-invented-numbers asserted for all three, missing `facts_block` variable
+  fails loudly (StrictUndefined).
+
+**Key decisions & reasons**
+- Prompts contain NO example outputs with real-looking values (skill
+  `prompt-change` step 6 — such examples leak through routing).
+- The pharmacist prompt states what it is DENIED, not just what it may do —
+  a model that knows it lacks CDR access declines instead of guessing
+  (matches the `declined_out_of_scope` contract tested in 5.4).
+- Role boundaries in the prompts mirror `configs/routing.yaml`, which is
+  still marked CLINICAL-REVIEW pending clinician co-author sign-off (4.2).
+
+**Verified (commands run)**
+- `rtk uv run pytest tests/unit/test_specialist_prompts.py -q` → **9 passed**.
+- `rtk uv run pytest tests/unit/test_router_leak.py -q` → **4 passed**
+  (1000 examples × 3 roles re-run green against the unchanged router —
+  prompts carry no facts, so no new leak surface).
+
+**Session-end battery (5.1–5.3)**
+- `rtk uv run pytest -m "not live" -q` → **393 passed, 1 deselected**
+  (363 prior + 30 new: 7 budget + 14 loader + 9 prompts), ~142s.
+- `rtk uv run ruff check src tests scripts` + `ruff format --check` → clean.
+- `rtk uv run python -m mypy` → no issues (56 source files).
+- `rtk uv run lint-imports --config importlinter.ini` → 7 kept, 0 broken.
+- `rtk uv run python scripts/schema_snapshot.py --check` → up to date
+  (21 models — no schema changes this phase).
+- `rtk` v0.50.0 used for all shell commands this session.
+
+**Deferred / not verified**
+- BaseSpecialist + fan-out + scope-violation suite is Section 5.4 (next).
+- Live schema-conformance spot check (`make test-live`) stays manual/deferred
+  until after 5.4 — the specialists don't exist as call sites yet.
+- No eval run (prompt-change skill step 4) — v1 prompts have no predecessor
+  to compare against; first eval baseline lands with the P13 harness.
+
+**CLINICAL-REVIEW items**
+- Role-scope wording inside the three prompts (what each role may judge)
+  mirrors routing.yaml — same pending clinician co-author review as 4.2.
+- Pharmacist drug-class list (the five example classes) is a first proposal
+  for clinical review.
+
+**MANUAL STEPS FOR THE HUMAN (5.1–5.3)**
+1. Review + commit the files listed below (commit messages provided).
+2. Clinician co-author: review the three v1 prompts alongside routing.yaml
+   when available.
+
+**Commit messages (5.3)**
+- `prompts/ophthalmologist/v1.md` → feat(prompts): add ophthalmologist specialist prompt v1 (scope, exclusions, SubReport contract, I-12 wording)
+- `prompts/optometrist/v1.md` → feat(prompts): add optometrist specialist prompt v1 (follow-up-pathway scope, no pixel-level reasoning)
+- `prompts/pharmacist/v1.md` → feat(prompts): add pharmacist specialist prompt v1 (drug-class safety only, no doses/regimens/brands)
+- `tests/unit/test_specialist_prompts.py` → test(agents): assert v1 specialist prompts render and carry all required rule sections
+- `Kimi.md` → docs(memory): log Phase 5 sections 5.1–5.3 (LLM hardening, prompt loader, specialist prompts v1)
+
+---
