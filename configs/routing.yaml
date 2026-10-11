@@ -1,0 +1,61 @@
+# configs/routing.yaml — SINGLE SOURCE OF TRUTH for role allowlists (I-2).
+# The Context Router (context/router.py) is a deterministic projection over
+# this file: allowlist only, deny-by-default, no LLM, no fallback.
+# routing_version stamped on every RoleContext = sha256 of this file's bytes.
+#
+# CLINICAL-REVIEW: pending — proposal v0.1, reviewer TBD, date TBD.
+# Role boundaries are a clinical judgement, not an engineering one; this table
+# must be reviewed by a clinician co-author (and reviewer/date recorded here)
+# before it is frozen.
+roles:
+  ophthalmologist:
+    allow:
+      - cad.p_glaucoma.tier
+      - cad.p_glaucoma.calibrated
+      - cad.cdr.vertical
+      - cad.cdr.area_based
+      - cad.disc.area_px
+      - cad.cup.area_px
+      - cad.disc.vdiam_px
+      - cad.cup.vdiam_px
+      - cad.quality.score
+      - cad.quality.flags
+      - cad.maskqc.ok
+      - cad.laterality
+      - note.age
+      - note.iop.od
+      - note.iop.os
+      - note.exam_findings
+      - note.prior_dx
+      - note.free_text
+      - "cad.caveat.*"
+      - note.caveat.extraction
+  optometrist:
+    allow:
+      - cad.p_glaucoma.tier
+      - cad.p_glaucoma.calibrated
+      - cad.cdr.vertical
+      - cad.quality.score
+      - cad.quality.flags
+      - cad.maskqc.ok
+      - cad.laterality
+      - note.age
+      - note.iop.od
+      - note.iop.os
+      - note.exam_findings
+      - note.prior_dx
+      - note.free_text
+      - "cad.caveat.*"
+      - note.caveat.extraction
+  pharmacist:
+    allow:
+      - cad.p_glaucoma.tier
+      - cad.laterality
+      - note.age
+      - note.iop.od
+      - note.iop.os
+      - note.prior_dx
+      - note.meds
+      - note.intolerances
+      - note.comorbidities
+      - note.caveat.extraction
