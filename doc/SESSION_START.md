@@ -11,40 +11,30 @@ context size and avoid re-reading anything already summarized here.
 (a) the file header (STANDING CONVENTION + "Current position" line), and
 (b) the **most recent** section entry (the last `### Section X.Y` block).
 Do NOT read older phase logs — the header + last entry are the checkpoint.
-CURRENT POSITION (as of last checkpoint): Phase 2 IN PROGRESS — Sections
-2.1 + 2.2 done. NEXT TASK: Section 2.3 — in-repo interpretation:
-calibration, tiers, quality, CDR (awaiting go-ahead).
+CURRENT POSITION (as of last checkpoint): Phase 3 COMPLETE (3.1–3.4);
+Phase 4 COMPLETE (4.1–4.4, leak property test green at 1000 examples/role).
+NEXT TASK: Phase 5, Section 5.1 — LLMClient hardening + specialist agents
+(awaiting go-ahead).
 2. `SKILLS.md` — read ONLY the index table + the ONE skill matching the
-current task. For Section 2.3 that is skill 15 `calibration-and-thresholds`
-AND skill 14 `cdr-and-mask-validation`. Read no other skills unless the
-task later requires them.
+current task. For Phase 5 Section 5.1 that is the LLM-client-hardening /
+agent-prompt skills. Read no other skills unless the task later requires them.
 3. `AGENTS.md` — read ONLY: §2 (Invariants table, all 14) and the section(s)
-matching the current task (for 2.3: §8 Vision subsystem + §21 Code
-standards). Skim §5 hard boundaries. Do NOT read §9–§20, §22–§26 now.
-4. `ARCHITECTURE.md` — read ONLY §5.4 (Vision subsystem design) and §16.1/16.2
-(CDR + calibration algorithms) for this task. Read other sections only
-when a later task requires them.
+matching the current task (for 5.1: §11 Specialist agents + §21 Code
+standards). Skim §5 hard boundaries. Do NOT read unrelated sections now.
+4. `ARCHITECTURE.md` — read ONLY the sections matching the current task.
+Read other sections only when a later task requires them.
 
 If anything in these files appears to conflict, AGENTS.md wins — stop and
 tell me instead of silently resolving it.
 
 ## 2. Task for this session
 
-Section 2.3 of the implementation plan as recorded in `Kimi.md` / §22 of
-AGENTS.md: build the in-repo interpretation layer — `src/consilium/vision/`
-modules: `rle.py` (RLE decode), `postprocess.py` (largest component, fill
-holes, clip cup⊆disc with recorded clip), `cdr.py` (vertical primary +
-area_based secondary, nested-mask convention, all guards), `quality.py`
-(client-side prechecks + post-inference quality + mask QC), `calibration.py`
-(temperature scaling on raw logits), `pipeline.py` (`run(image) -> CADResult`),
-plus `configs/thresholds.yaml` and the `configs/models.yaml` calibrator
-params seam. Wire the FakeVisionClient fixtures keyed by sha256. Follow
-skills 14 + 15 exactly: tests first (synthetic masks at known ratios 0.3/
-0.5/0.7/0.9, cup=0, cup==disc, tilted/elliptical, two blobs, cup-outside-
-disc), tolerances in config not code, `# CLINICAL-REVIEW:` markers on
-threshold choices. Keep `training/segmentation/metrics.py` mirrored to
-`vision/cdr.py` — reconcile per the 2.2 note (vision/cdr.py becomes
-canonical). Do not start until I say go.
+Phase 5, Section 5.1 of the implementation plan (see `Kimi.md` Phase 4 exit
+and the plan file): LLMClient hardening (retry/timeout/token budget polish
+on the 3.2 base) + prompt loader + the three specialist agents
+(ophthalmologist, optometrist, pharmacist) with `prompts/<role>/v1.md`.
+Read the matching SKILLS.md skills before starting. Do not start until I
+say go.
 
 ## 3. Token-saving working rules (apply for the WHOLE session)
 
@@ -85,7 +75,7 @@ included), strict Pydantic schemas, mypy --strict, ruff clean.
 - Report honestly: if you could not verify something, say so in the entry.
 
 Acknowledge briefly (a few lines: resume position + what you will read),
-then wait for my go-ahead on Section 2.3.
+then wait for my go-ahead on the Phase 5 task above.
 
 ## 5. SHELL COMMAND EXECUTION — RTK (MANDATORY)
 
