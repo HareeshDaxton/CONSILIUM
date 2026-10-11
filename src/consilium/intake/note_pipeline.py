@@ -25,7 +25,9 @@ from consilium.intake.extractor import (
     load_extractor_prompt,
 )
 from consilium.intake.input_rail import InputRailConfig, check_note, load_input_rail
-from consilium.llm.client import LLMClient, LLMRetryPolicy
+from consilium.llm.budget import TokenBudget
+from consilium.llm.client import LLMClient
+from consilium.llm.retry import LLMRetryPolicy
 from consilium.schemas.note import NoteExtraction
 
 
@@ -41,6 +43,7 @@ async def run(
     timeout_s: float = 60.0,
     max_repairs: int = 2,
     retry_policy: LLMRetryPolicy | None = None,
+    budget: TokenBudget | None = None,
     fixture: str | None = None,
 ) -> NoteExtraction:
     """Full intake for one raw note. Configs default-load from configs/."""
@@ -59,6 +62,7 @@ async def run(
         timeout_s=timeout_s,
         max_repairs=max_repairs,
         retry_policy=retry_policy,
+        budget=budget,
         fixture=fixture,
     )
     return NoteExtraction(  # 4. provenance on every run (§10.5)
