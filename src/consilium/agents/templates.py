@@ -10,8 +10,9 @@ Same input -> identical output (no timestamps, no randomness).
 """
 
 from consilium.context.facts import F
-from consilium.schemas.context import Fact, RoleContext
-from consilium.schemas.enums import FactSource
+from consilium.schemas.agents import SubReport
+from consilium.schemas.context import Fact, GlobalContext, RoleContext
+from consilium.schemas.enums import FactSource, Role
 
 UNTRUSTED_IDS: frozenset[str] = frozenset({F.EXAM, F.FREE})
 
@@ -44,7 +45,7 @@ def _section(name: str, facts: list[Fact], *, quote: bool = False) -> list[str]:
     return lines
 
 
-def render_facts(ctx: RoleContext) -> str:
+def render_facts(ctx: RoleContext | GlobalContext) -> str:
     trusted = [f for f in ctx.facts if f.source is not FactSource.NOTE]
     note_typed = [f for f in ctx.facts if f.source is FactSource.NOTE and f.id not in UNTRUSTED_IDS]
     untrusted = [f for f in ctx.facts if f.id in UNTRUSTED_IDS]
@@ -56,3 +57,37 @@ def render_facts(ctx: RoleContext) -> str:
         lines.append(UNTRUSTED_DECLARATION)
         lines += _section('untrusted-data source="clinician-note"', untrusted, quote=True)
     return "\n".join(lines)
+
+
+def render_subreports(reports: dict[Role, SubReport]) -> str:
+    """Render specialist sub-reports for the Director's prompt (Section 6.1).
+
+    Deterministic: fixed role order, one block per role present. Sub-report
+    text is internal agent output quoted as data; the Director prompt's
+    untrusted-data rule covers note content echoed inside it.
+    """
+    blocks: list[str] = []
+    for role in (Role.OPHTHALMOLOGIST, Role.OPTOMETRIST, Role.PHARMACIST):
+        report = reports.get(role)
+        if report is None:
+            continue
+        lines = [f'[sub-report role="{role.value}"]']
+        lines.append("findings:")
+        for finding in report.findings:
+            refs = ", ".join(finding.evidence_refs)
+            lines.append(
+                f"- (confidence: {finding.confidence.value}) {finding.text} [evidence: {refs}]"
+            )
+        lines.append("recommendations:")
+        for rec in report.recommendations:
+            triggers = ", ".join(rec.triggered_by)
+            lines.append(f"- {rec.text} [triggered_by: {triggers}]")
+        if report.uncertainties:
+            lines.append("uncertainties:")
+            lines += [f"- {item}" for item in report.uncertainties]
+        if report.declined_out_of_scope:
+            lines.append("declined_out_of_scope:")
+            lines += [f"- {item}" for item in report.declined_out_of_scope]
+        lines.append("[/sub-report]")
+        blocks.append("\n".join(lines))
+    return "\n\n".join(blocks)
