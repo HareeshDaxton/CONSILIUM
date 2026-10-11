@@ -1,0 +1,59 @@
+# PHI de-identification patterns (AGENTS.md §6 I-6, §10; SKILLS.md note-extraction).
+#
+# Consumed by src/consilium/intake/deidentify.py. Each pattern records:
+#   name    — stored in NoteExtraction.redactions; the ONLY thing persisted.
+#   pattern — Python `re` regex.
+#   flags   — optional re flags (IGNORECASE, MULTILINE).
+#   action  — "redact" is the only V1 action. The matched VALUE is replaced
+#             with "[REDACTED:<name>]" and is never stored or logged.
+#
+# Design rules (SKILLS.md note-extraction step 2):
+#   - Patterns must NOT eat clinical content: plain dates ("2024-01-15"),
+#     follow-up intervals ("2-4 months"), IOP readings, and ages are clinical
+#     data and must survive. Identifier patterns therefore require an
+#     explicit label ("DOB:", "MRN", "Name:") or a rigid shape (phone, SSN,
+#     email). Unlabelled names/dates are NOT caught here — that residual risk
+#     is accepted in V1 and covered by the extraction contract (fields are
+#     typed; there is no "patient name" field to put them in).
+#   - Every pattern has positive + negative tests in tests/unit/test_deidentify.py.
+
+version: 1
+patterns:
+  - name: phone_number
+    action: redact
+    # 555-123-4567 / (555) 123-4567 / +1 555 123 4567. The 3-3-4 grouping is
+    # deliberate: it cannot match ISO dates (4-2-2) or short clinical numbers.
+    pattern: '(?<!\w)(?:\+\d{1,3}[ .-]?)?\(?\d{3}\)?[ .-]\d{3}[ .-]\d{4}(?!\w)'
+
+  - name: email_address
+    action: redact
+    flags: [IGNORECASE]
+    pattern: '\b[\w.+-]+@[\w-]+(?:\.[\w-]+)+\b'
+
+  - name: ssn
+    action: redact
+    # US SSN shape 123-45-6789 (3-2-4); distinct from the 3-3-4 phone shape.
+    pattern: '\b\d{3}-\d{2}-\d{4}\b'
+
+  - name: medical_record_number
+    action: redact
+    flags: [IGNORECASE]
+    # Labelled identifiers only: "MRN 123456", "Medical Record Number: 12345",
+    # "Patient ID #123456". A bare number is clinical content, not an MRN.
+    pattern: '\b(?:MRN|medical record(?: number)?|patient ID|hospital no)[.:\s#]*\d{4,}\b'
+
+  - name: date_of_birth
+    action: redact
+    flags: [IGNORECASE]
+    # Labelled DOB only ("DOB: 03/04/1959", "date of birth 1959-03-04",
+    # "born 4 March 1959" is NOT matched — month-name dates are not numeric-
+    # shape identifiers and appear in clinical histories).
+    pattern: '\b(?:DOB|date of birth|born on)[.:\s]*(?:\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{4}[/-]\d{1,2}[/-]\d{1,2})\b'
+
+  - name: named_person
+    action: redact
+    # Labelled capitalised full names: "Patient name: Jane Doe",
+    # "Referred by Dr. John Smith", "Name: Jane Doe". The LABEL match is
+    # case-insensitive but the NAME part is case-SENSITIVE so lowercase
+    # clinical phrases ("name of the drug") survive.
+    pattern: '\b(?i:patient(?:''s)? name|name|referred by(?: Dr\.?)?|signed)[.:\s]+[A-Z][a-z]+(?: [A-Z][a-z]+)+\b'
