@@ -11,7 +11,7 @@ anything only the user can do (account registrations, dataset downloads, API
 keys into `.env`, tool installs, OS policy changes). If the list is empty,
 the section needed no manual work.
 
-Current position: **PHASE 5 IN PROGRESS — Sections 5.1, 5.2, 5.3 DONE (LLMClient hardening + token budget, prompt loader, specialist prompts v1; full battery green, 393 tests). Next: Phase 5, Section 5.4 — BaseSpecialist + fan-out + scope-violation tests (awaiting go-ahead).**
+Current position: **PHASE 5 COMPLETE (5.1–5.4); PHASE 6 COMPLETE through 6.3 (Director prompt v1, draft/revise agent, disagreement-preservation tests; full battery green, 418 tests). Next: Phase 7, Section 7.1 — deterministic verifier lexicon + tolerance config (awaiting go-ahead).**
 
 ---
 
@@ -1664,5 +1664,248 @@ test re-run green.
 - `prompts/pharmacist/v1.md` → feat(prompts): add pharmacist specialist prompt v1 (drug-class safety only, no doses/regimens/brands)
 - `tests/unit/test_specialist_prompts.py` → test(agents): assert v1 specialist prompts render and carry all required rule sections
 - `Kimi.md` → docs(memory): log Phase 5 sections 5.1–5.3 (LLM hardening, prompt loader, specialist prompts v1)
+
+---
+
+
+### Section 5.4 — BaseSpecialist + fan-out ✅ DONE
+
+**Goal (from implementation plan):** `agents/base.py` shared run() (render →
+generate → validate refs ⊆ allowed_ids() → ≤2 repair retries → AgentFailure);
+`agents/specialists.py` three instances + run_all with
+`asyncio.gather(return_exceptions=True)`, sibling outputs persisted on
+partial failure, one failure fails the case (I-5);
+`tests/unit/test_specialist_scope.py` scope/retry/adversarial suites.
+Exit: scope + retry suites green. (Live schema-conformance spot check stays
+a manual step — offline rule §20.)
+
+**What was done — files created/changed**
+- `src/consilium/llm/retry.py` — `generate_structured` gained an optional
+  `output_validator` hook: a post-schema semantic check whose error summary
+  is fed back through the SAME bounded repair loop (1 initial + ≤2 repairs)
+  before failing closed with `ValidationFailure(LLM_OUTPUT_INVALID)`.
+- `src/consilium/agents/base.py` (NEW) — `BaseSpecialist`: one class for all
+  three roles (role differences live in prompts + routing.yaml only). run():
+  context-role match guard (`SPECIALIST_CONTEXT_MISMATCH`, no LLM call
+  placed) → prompt render via `agents/templates.render_facts` →
+  `generate_structured` with the scope validator: report role must match the
+  agent, every `evidence_refs`/`triggered_by` ⊆ `RoleContext.allowed_ids()`.
+  Repair hints name fact IDs only — never fact values or note content (I-6).
+- `src/consilium/agents/specialists.py` (NEW) — `SPECIALIST_ROLES`,
+  `build_specialists(settings, llm, …)` (model snapshot + temperature from
+  settings; shared per-case `TokenBudget` injectable),
+  `run_all(contexts, specialists)` — concurrent gather; missing RoleContext
+  is a wiring error (`SPECIALIST_CONTEXT_MISSING`); any specialist failure
+  raises `SpecialistFanOutFailure` carrying the succeeded sibling
+  `ParsedResponse`s so the graph node (P9) can persist them before the case
+  goes FAILED (I-5). Unknown exceptions are converted but never swallowed.
+- `tests/unit/test_specialist_scope.py` (NEW) — 13 tests: happy path stamps
+  prompt version + renders trusted/untrusted blocks; out-of-scope ref
+  repaired on round 2 (repair hint names the offending fact ID); persistent
+  scope violation fails closed after 3 calls; role-mismatch output is a
+  scope violation; `triggered_by` out-of-scope rejected; malformed output
+  retry-then-fail; refusal never retried; context role mismatch fails loudly
+  before any LLM call; adversarial note redirection attempt stays inside the
+  quoted untrusted block and changes nothing; pharmacist declines CDR
+  judgement via `declined_out_of_scope`; run_all happy path; partial failure
+  keeps sibling outputs on the exception; missing context fails closed with
+  no LLM call.
+
+**Key decisions & reasons**
+- Scope validation lives INSIDE the repair loop (as `output_validator`), not
+  after it: a scope-citing report gets the same bounded chance to repair as
+  a schema-invalid one, then fails closed identically. This is the second,
+  independent isolation enforcement (router restricts what the agent sees;
+  this rejects output citing what it should not know — §7 contract rules).
+- `ParsedResponse` (not bare `SubReport`) flows out of the specialists so
+  token usage/attempts reach `agent_runs` accounting in P9.
+
+**Verified (commands run)**
+- `uv run pytest tests/unit/test_specialist_scope.py -q` → **13 passed**.
+- Full battery ran once at end of 6.3 (below): 418 passed total.
+
+**Deferred / not verified**
+- `make test-live` schema-conformance spot check on ≥20 synthetic cases —
+  MANUAL (needs OPENAI_API_KEY); run before claiming Phase-5 exit in any
+  report. Everything else for the phase exit (valid SubReports under fakes,
+  double isolation enforcement) is green.
+
+**CLINICAL-REVIEW items** — none new (prompt/routing review from 4.2/5.3
+still open).
+
+**MANUAL STEPS FOR THE HUMAN (5.4)**
+1. Review + commit the files listed in the session chat (messages provided).
+2. Optional: run `uv run pytest -m live` with an OpenAI key for the
+   schema-conformance spot check and record the result.
+
+**Commit messages (5.4)**
+- `src/consilium/llm/retry.py` → feat(llm): add output_validator hook to generate_structured feeding semantic errors into the repair loop
+- `src/consilium/agents/base.py` → feat(agents): add BaseSpecialist with in-loop scope validation of evidence refs (second isolation enforcement)
+- `src/consilium/agents/specialists.py` → feat(agents): add specialist fan-out with concurrent run_all and fail-closed sibling preservation (I-5)
+- `tests/unit/test_specialist_scope.py` → test(agents): cover scope rejection, repair-then-fail, refusal, adversarial note, and fan-out failure paths
+
+---
+
+
+
+## Phase 6 — Director
+
+Skill in force: `prompt-change` (SKILLS.md §5) for 6.1, `specialist-agent`
+(§4 patterns) for 6.2/6.3.
+
+### Section 6.1 — Director prompt v1 ✅ DONE
+
+**Goal (from implementation plan):** `prompts/director/v1.md` —
+attribute-don't-launder (`source_roles` on every claim), disagreement
+preservation, NUMERIC-claim rule (numeric_value + numeric_ref), mandatory
+limitations (every caveat fact, screening-support wording, absent VF/OCT),
+I-12 wording contract. Exit: prompt renders against fixture sub-reports +
+fact sheet.
+
+**What was done — files created/changed**
+- `prompts/director/v1.md` (NEW) — sections: role & scope (synthesizer of
+  three isolated SubReports + read-only global fact sheet; never adds new
+  clinical facts); exclusions (no invented/altered numbers I-1, no
+  diagnosis/stage I-12, no doses/regimens/brands, never smooth dissent);
+  case data (`{{ facts_block }}` + `{{ subreports_block }}`); attribution
+  rule; NUMERIC-claim rule; disagreement-preservation rule ("left to
+  clinician" is an acceptable resolution); limitations rule (mandatory,
+  verified downstream); untrusted-data rule (I-7); wording rules (I-12);
+  `{{ revision_block }}` (revision mode; empty on first draft); output
+  contract (`DirectorDraft` JSON).
+- `src/consilium/agents/templates.py` — `render_facts` widened to accept
+  `GlobalContext` (same fact tuple); NEW `render_subreports` — deterministic
+  fixed-role-order rendering of SubReports (findings with confidence +
+  evidence IDs, recommendations with triggered_by, uncertainties,
+  declined_out_of_scope).
+- `tests/unit/test_director_prompt.py` (NEW) — 5 tests: renders with fixture
+  fact sheet + sub-reports (no `{{` left, values embedded, fixed role
+  order); all required rule-section markers present; diagnosis/dose/
+  laundering prohibitions present; missing variables fail loudly
+  (StrictUndefined); revision block rendered when supplied.
+
+**Key decisions & reasons**
+- One prompt version serves both draft and revise modes via
+  `{{ revision_block }}` — prompt version stays comparable across rounds
+  (I-9), and the revision contract is part of the reviewed artifact.
+- No example outputs with real-looking values (prompt-change skill step 6).
+
+**Verified (commands run)**
+- `uv run pytest tests/unit/test_director_prompt.py -q` → **5 passed**.
+
+**CLINICAL-REVIEW items**
+- Director wording rules (impression phrasing, limitations content) mirror
+  I-12; review alongside the specialist prompts when the clinician co-author
+  is available.
+
+**Commit messages (6.1)**
+- `prompts/director/v1.md` → feat(prompts): add director prompt v1 (attribute-don't-launder, disagreement preservation, NUMERIC-claim rule, mandatory limitations)
+- `src/consilium/agents/templates.py` → feat(agents): add render_subreports and accept GlobalContext in render_facts for the director prompt
+- `tests/unit/test_director_prompt.py` → test(agents): assert director prompt v1 renders with fixture sub-reports and carries all required rule sections
+
+---
+
+
+
+### Section 6.2 — Draft + revise implementation ✅ DONE
+
+**Goal (from implementation plan):** `agents/director.py` —
+draft(sub_reports, global_ctx) → DirectorDraft; revise(draft, issues, round)
+receives previous draft + issue list ONLY (never critic reasoning), must
+address each issue or justify non-change, revision += 1.
+Exit: unit tests with FakeLLMClient — refs resolve, limitations complete,
+revise bumps revision and addresses issues.
+
+**What was done — files created/changed**
+- `src/consilium/agents/director.py` (NEW) — `Director` (immutable,
+  same hardening path as specialists: transient retry, bounded repair,
+  per-case token budget via `generate_structured`). `draft()` renders
+  facts + sub-reports with an empty revision instruction; `revise()` builds
+  the revision block from the previous draft JSON + the issue list
+  (type/claim_id/detail only — `raised_by` deliberately excluded) and stamps
+  `revision = previous + 1`. `revision` is bookkeeping stamped by code on
+  both paths, never left to the model.
+
+**Key decisions & reasons**
+- Revision stamping in code (not the LLM): the model receives the target
+  revision in the instruction, but the returned draft's `revision` is
+  overwritten deterministically — a model off-by-one can never corrupt the
+  audit trail.
+- Reference resolution / numeric checks against the fact sheet are NOT
+  duplicated here — they are the deterministic verifier's job (P7); the
+  Director only produces the draft.
+
+**Verified (commands run)**
+- `uv run pytest tests/unit/test_director.py -q` → **4 passed** (6.2
+  portion): refs resolve against the fact sheet + limitations present;
+  revision stamped 0 even when the model says otherwise; revise bumps to 1
+  and the prompt carries the previous draft + `[iN]` issue list only (no
+  `raised_by`/reasoning leak); refusal fails closed after exactly 1 call.
+
+**Commit messages (6.2)**
+- `src/consilium/agents/director.py` → feat(agents): add Director draft/revise with code-stamped revision and issue-list-only revision input
+- `tests/unit/test_director.py` → test(agents): cover director draft refs/limitations, revision stamping, revise issue handling, and refusal
+
+---
+
+
+
+### Section 6.3 — Disagreement preservation tests ✅ DONE
+
+**Goal (from implementation plan):** curated fixture cases where roles
+genuinely disagree (escalation urgency; CDR interpretation); assert the
+draft contains the Disagreement with per-role positions and never smooths it
+into a confident sentence. Exit: curated cases pass deterministically under
+fakes.
+
+**What was done — files created/changed**
+- `tests/unit/test_director.py` — appended the 6.3 suite (3 tests over 2
+  curated cases): (1) parametrized preservation test — both polar positions
+  render in the Director's prompt, the draft preserves them verbatim keyed
+  by role, resolution recorded, and no claim merges both disagreeing roles
+  into one `source_roles` consensus; (2) schema-level proof that a
+  "disagreement" smoothed to a single position violates
+  `positions min_length=2`, and a schema-violating output exhausts the
+  repair loop → `ValidationFailure` (fail closed).
+
+**Key decisions & reasons**
+- Under fakes the draft is canned, so the deterministic guarantees tested
+  are: conflict visibility in the prompt, verbatim preservation through the
+  schema boundary, and schema rejection of single-position smoothing.
+  Detecting a draft that OMITS a real disagreement belongs to the
+  deterministic verifier's `DISAGREEMENT_SUPPRESSED` check (P7) — noted
+  there, not duplicated here.
+
+**Verified (commands run)**
+- `uv run pytest tests/unit/test_director.py tests/unit/test_director_prompt.py
+  -q` → **12 passed** (5 prompt + 7 director incl. parametrized cases).
+
+**Session-end battery (5.4 + 6.1–6.3)**
+- `uv run pytest -m "not live" -q` → **418 passed, 1 deselected**
+  (406 prior + 5 director prompt + 7 director), ~69s.
+- `uv run ruff check src tests scripts` + `ruff format --check` → clean
+  (this session also repaired pre-existing drift: UP035 import fixes in
+  `llm/prompt_loader.py` / `llm/retry.py`, an S701 noqa with justification on
+  the plain-text Jinja environment, E501 wraps in `test_llm_budget.py`, and
+  import sorting in `test_prompt_loader.py`).
+- `uv run python -m mypy` → no issues (59 source files).
+- `uv run lint-imports --config importlinter.ini` → 7 kept, 0 broken.
+- `uv run python scripts/schema_snapshot.py --check` → up to date
+  (21 models — no schema changes).
+- RTK NOT functional this session (WinGet shim: permission denied on the
+  binary); commands ran via `uv run` directly.
+
+**Deferred / not verified**
+- PHASE 6 EXIT ("DirectorDraft contract satisfied end-to-end under fakes"):
+  met at the agent level; end-to-end graph wiring is P9.
+- Live conformance and the verifier's DISAGREEMENT_SUPPRESSED check remain
+  as recorded above (5.4 manual step; P7).
+
+**MANUAL STEPS FOR THE HUMAN (6.1–6.3)**
+1. Review + commit the files listed below (commit messages provided per
+   section above and consolidated in chat).
+
+**Commit messages (6.3)**
+- `tests/unit/test_director.py` → test(agents): add curated disagreement-preservation cases and single-position smoothing rejection
 
 ---
