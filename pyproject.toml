@@ -122,8 +122,8 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S106", "S105"]   # fixture tokens/keys in tests are synthetic
-"scripts/**" = ["T201"]
+"tests/**" = ["S106", "S105", "RUF001", "RUF002"]  # RUF*: adversarial unicode test data is intentional
+"scripts/**" = ["T201", "RUF001", "RUF002"]  # RUF*: full-width/zero-width adversarial fixture strings are intentional
 "training/**" = ["T201", "S311"]  # CLI prints; seeded non-crypto RNG is the point
 
 [tool.mypy]
