@@ -220,46 +220,67 @@ All cross-component types live in `src/consilium/schemas/`. Below is the authori
 from enum import StrEnum
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+
 class Strict(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
 
+
 class Laterality(StrEnum):
-    OD = "OD"; OS = "OS"; UNKNOWN = "UNKNOWN"
+    OD = "OD"
+    OS = "OS"
+    UNKNOWN = "UNKNOWN"
+
 
 class Role(StrEnum):
     OPHTHALMOLOGIST = "ophthalmologist"
     OPTOMETRIST = "optometrist"
     PHARMACIST = "pharmacist"
 
-class AgentName(StrEnum):          # identity for agent_runs / prompt versioning
-    NOTE_EXTRACTOR = "note_extractor"
-    OPHTHALMOLOGIST = "ophthalmologist"; OPTOMETRIST = "optometrist"; PHARMACIST = "pharmacist"
-    DIRECTOR = "director"; CRITIC = "critic"
 
-class ScreeningTier(StrEnum):          # derived from CALIBRATED probability via thresholds.yaml
-    LOW = "low"; INTERMEDIATE = "intermediate"; HIGH = "high"
+class AgentName(StrEnum):  # identity for agent_runs / prompt versioning
+    NOTE_EXTRACTOR = "note_extractor"
+    OPHTHALMOLOGIST = "ophthalmologist"
+    OPTOMETRIST = "optometrist"
+    PHARMACIST = "pharmacist"
+    DIRECTOR = "director"
+    CRITIC = "critic"
+
+
+class ScreeningTier(StrEnum):  # derived from CALIBRATED probability via thresholds.yaml
+    LOW = "low"
+    INTERMEDIATE = "intermediate"
+    HIGH = "high"
+
 
 # ---------- vision ----------
 class QualityFlag(StrEnum):
-    UNDEREXPOSED="underexposed"; OVEREXPOSED="overexposed"; BLURRED="blurred"
-    DISC_NOT_VISIBLE="disc_not_visible"; NOT_FUNDUS="not_fundus"; LOW_RESOLUTION="low_resolution"
+    UNDEREXPOSED = "underexposed"
+    OVEREXPOSED = "overexposed"
+    BLURRED = "blurred"
+    DISC_NOT_VISIBLE = "disc_not_visible"
+    NOT_FUNDUS = "not_fundus"
+    LOW_RESOLUTION = "low_resolution"
+
 
 class ImageQuality(Strict):
     score: float = Field(ge=0, le=1)
     gradable: bool
     flags: tuple[QualityFlag, ...] = ()
 
+
 class ClassifierOutput(Strict):
-    p_raw: float = Field(ge=0, le=1)          # raw logit→prob from endpoint
-    p_calibrated: float = Field(ge=0, le=1)   # temperature-scaled HERE, in-repo
+    p_raw: float = Field(ge=0, le=1)  # raw logit→prob from endpoint
+    p_calibrated: float = Field(ge=0, le=1)  # temperature-scaled HERE, in-repo
     tier: ScreeningTier
-    model_version: str            # endpoint model revision + MLflow run ID
+    model_version: str  # endpoint model revision + MLflow run ID
+
 
 class MaskQC(Strict):
     cup_within_disc: bool
     single_component_each: bool
-    disc_area_plausible: bool     # within thresholds.yaml range
-    ok: bool                      # AND of the above
+    disc_area_plausible: bool  # within thresholds.yaml range
+    ok: bool  # AND of the above
+
 
 class Measurements(Strict):
     disc_area_px: int = Field(gt=0)
@@ -267,10 +288,14 @@ class Measurements(Strict):
     disc_vertical_diameter_px: int = Field(gt=0)
     cup_vertical_diameter_px: int = Field(ge=0)
 
+
 class CDRMetrics(Strict):
-    vertical: float = Field(ge=0, le=1)       # PRIMARY: cup vertical diameter / disc vertical diameter
-    area_based: float = Field(ge=0, le=1)     # secondary: sqrt(cup_area / disc_area), disc mask INCLUDES cup
+    vertical: float = Field(ge=0, le=1)  # PRIMARY: cup vertical diameter / disc vertical diameter
+    area_based: float = Field(
+        ge=0, le=1
+    )  # secondary: sqrt(cup_area / disc_area), disc mask INCLUDES cup
     mask_convention: str = "disc_includes_cup"
+
 
 class CADResult(Strict):
     quality: ImageQuality
@@ -278,19 +303,22 @@ class CADResult(Strict):
     measurements: Measurements
     cdr: CDRMetrics
     mask_qc: MaskQC
-    segmenter_version: str        # endpoint model revision + MLflow run ID
+    segmenter_version: str  # endpoint model revision + MLflow run ID
     laterality: Laterality
+
 
 # endpoint wire format (what VisionClient returns; NOT persisted as-is)
 class RawVisionOutput(Strict):
     p_raw: float = Field(ge=0, le=1)
-    disc_mask_rle: str            # run-length-encoded, resolution declared in header
+    disc_mask_rle: str  # run-length-encoded, resolution declared in header
     cup_mask_rle: str
-    mask_width: int = Field(gt=0); mask_height: int = Field(gt=0)
-    endpoint_revision: str        # must equal the pinned revision in models.yaml
+    mask_width: int = Field(gt=0)
+    mask_height: int = Field(gt=0)
+    endpoint_revision: str  # must equal the pinned revision in models.yaml
+
 
 # ---------- clinical note ----------
-class ClinicalNote(Strict):       # post-de-identification, post-extraction
+class ClinicalNote(Strict):  # post-de-identification, post-extraction
     age_years: int | None = Field(default=None, ge=0, le=120)
     iop_mmhg_od: float | None = None
     iop_mmhg_os: float | None = None
@@ -299,99 +327,127 @@ class ClinicalNote(Strict):       # post-de-identification, post-extraction
     comorbidities: tuple[str, ...] = ()
     prior_glaucoma_dx: str | None = None
     exam_findings: str | None = Field(default=None, max_length=2000)  # free text, untrusted
-    free_text: str | None = Field(default=None, max_length=4000)      # free text, untrusted
+    free_text: str | None = Field(default=None, max_length=4000)  # free text, untrusted
 
-class NoteExtraction(Strict):     # provenance for the extraction step
+
+class NoteExtraction(Strict):  # provenance for the extraction step
     note: ClinicalNote
-    extractor_model: str          # pinned snapshot, e.g. gpt-4o-mini-YYYY-MM-DD
+    extractor_model: str  # pinned snapshot, e.g. gpt-4o-mini-YYYY-MM-DD
     extractor_prompt_version: str
-    redactions: tuple[str, ...] = ()   # which PHI patterns fired (name of pattern, never the value)
+    redactions: tuple[str, ...] = ()  # which PHI patterns fired (name of pattern, never the value)
     extraction_confidence: Confidence  # low confidence surfaces a caveat fact
+
 
 # ---------- facts & contexts ----------
 class FactSource(StrEnum):
-    CAD = "cad"; NOTE = "note"; DERIVED = "derived"
+    CAD = "cad"
+    NOTE = "note"
+    DERIVED = "derived"
+
 
 class Fact(Strict):
-    id: str                        # stable, dotted: "cad.cdr.vertical", "note.meds", ...
+    id: str  # stable, dotted: "cad.cdr.vertical", "note.meds", ...
     label: str
     value: str | float | int | bool | tuple[str, ...]
     unit: str | None = None
     source: FactSource
 
-class GlobalContext(Strict):       # C_global
+
+class GlobalContext(Strict):  # C_global
     case_id: str
     laterality: Laterality
     facts: tuple[Fact, ...]
     # builder guarantees: unique IDs, every CAD field represented, caveat facts for QC flags
     # and for low-confidence note extraction
 
-class RoleContext(Strict):         # C_k
+
+class RoleContext(Strict):  # C_k
     role: Role
     case_id: str
     laterality: Laterality
     facts: tuple[Fact, ...]
-    routing_version: str           # hash of routing.yaml used
+    routing_version: str  # hash of routing.yaml used
+
     def allowed_ids(self) -> frozenset[str]: ...
+
 
 # ---------- agent outputs ----------
 class Confidence(StrEnum):
-    LOW="low"; MODERATE="moderate"; HIGH="high"
+    LOW = "low"
+    MODERATE = "moderate"
+    HIGH = "high"
+
 
 class Finding(Strict):
     text: str = Field(min_length=1, max_length=600)
     evidence_refs: tuple[str, ...] = Field(min_length=1)
     confidence: Confidence
 
+
 class Recommendation(Strict):
     text: str = Field(min_length=1, max_length=500)
-    triggered_by: tuple[str, ...] = Field(min_length=1)   # fact IDs that motivate it
-    basis: str = "model_knowledge"                        # V1: always; flagged for clinician
+    triggered_by: tuple[str, ...] = Field(min_length=1)  # fact IDs that motivate it
+    basis: str = "model_knowledge"  # V1: always; flagged for clinician
+
 
 class SubReport(Strict):
     role: Role
     findings: tuple[Finding, ...]
     recommendations: tuple[Recommendation, ...]
     uncertainties: tuple[str, ...] = ()
-    declined_out_of_scope: tuple[str, ...] = ()           # things it noticed but is not allowed to judge
+    declined_out_of_scope: tuple[str, ...] = ()  # things it noticed but is not allowed to judge
+
 
 class ClaimKind(StrEnum):
-    NUMERIC="numeric"; CATEGORICAL="categorical"; INTERPRETIVE="interpretive"; RECOMMENDATION="recommendation"
+    NUMERIC = "numeric"
+    CATEGORICAL = "categorical"
+    INTERPRETIVE = "interpretive"
+    RECOMMENDATION = "recommendation"
+
 
 class Claim(Strict):
-    id: str                                               # "c1", "c2", ...
+    id: str  # "c1", "c2", ...
     kind: ClaimKind
     text: str
-    evidence_refs: tuple[str, ...]                        # resolve against GlobalContext
-    source_roles: tuple[Role, ...]                        # who asserted it
-    numeric_value: float | None = None                    # REQUIRED when kind == NUMERIC
-    numeric_ref: str | None = None                        # fact ID the number must equal (REQUIRED for NUMERIC)
+    evidence_refs: tuple[str, ...]  # resolve against GlobalContext
+    source_roles: tuple[Role, ...]  # who asserted it
+    numeric_value: float | None = None  # REQUIRED when kind == NUMERIC
+    numeric_ref: str | None = None  # fact ID the number must equal (REQUIRED for NUMERIC)
+
 
 class Disagreement(Strict):
     topic: str
     positions: tuple[tuple[Role, str], ...] = Field(min_length=2)
-    resolution: str                                       # how the draft handles it, or "left to clinician"
+    resolution: str  # how the draft handles it, or "left to clinician"
+
 
 class DirectorDraft(Strict):
-    impression: str                                       # screening-support wording only
+    impression: str  # screening-support wording only
     claims: tuple[Claim, ...]
     disagreements: tuple[Disagreement, ...] = ()
     recommendations: tuple[Recommendation, ...] = ()
-    limitations: tuple[str, ...]                          # must include QC caveats from context
+    limitations: tuple[str, ...]  # must include QC caveats from context
     revision: int = 0
+
 
 # ---------- audit ----------
 class IssueType(StrEnum):
-    UNSUPPORTED="unsupported"; NUMERIC_MISMATCH="numeric_mismatch"; OMITTED_FINDING="omitted_finding"
-    OUT_OF_SCOPE="out_of_scope"; UNSAFE_LANGUAGE="unsafe_language"; DISAGREEMENT_SUPPRESSED="disagreement_suppressed"
-    BAD_REFERENCE="bad_reference"
+    UNSUPPORTED = "unsupported"
+    NUMERIC_MISMATCH = "numeric_mismatch"
+    OMITTED_FINDING = "omitted_finding"
+    OUT_OF_SCOPE = "out_of_scope"
+    UNSAFE_LANGUAGE = "unsafe_language"
+    DISAGREEMENT_SUPPRESSED = "disagreement_suppressed"
+    BAD_REFERENCE = "bad_reference"
+
 
 class Issue(Strict):
     type: IssueType
     claim_id: str | None
     detail: str
     evidence: tuple[str, ...] = ()
-    raised_by: str                                         # "deterministic" | "llm_critic"
+    raised_by: str  # "deterministic" | "llm_critic"
+
 
 class CriticVerdict(Strict):
     approved: bool
@@ -918,7 +974,6 @@ tokens; behavior and exit code are unchanged.
 - `RTK_DISABLED=1 <cmd>` — skip RTK for one command.
 - `rtk discover` — find past commands RTK could have condensed.
 <!-- /rtk-instructions -->
-
 
 ## 27 SHELL COMMAND EXECUTION — RTK (MANDATORY)
 
