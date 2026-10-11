@@ -216,14 +216,14 @@ training/      never imported by src/; deploy/ never imported by src/
 ```python
 @dataclass(frozen=True)
 class Deps:
-    llm: LLMClient                    # OpenAI impl in prod, Fake in tests
-    vision: VisionClient              # HTTP impl in prod, Fake in tests/compose
-    note_extractor: NoteExtractor     # wraps llm + prompts
-    repos: Repositories               # case/cad/draft/verdict/review/audit stores
-    guardrails: GuardrailService      # nemo + deterministic checks
+    llm: LLMClient  # OpenAI impl in prod, Fake in tests
+    vision: VisionClient  # HTTP impl in prod, Fake in tests/compose
+    note_extractor: NoteExtractor  # wraps llm + prompts
+    repos: Repositories  # case/cad/draft/verdict/review/audit stores
+    guardrails: GuardrailService  # nemo + deterministic checks
     settings: Settings
-    clock: Clock                      # test clock
-    idgen: IdGen                      # uuid provider
+    clock: Clock  # test clock
+    idgen: IdGen  # uuid provider
     langfuse: LangfuseSink | None
     otel: Tracer
 ```
@@ -286,14 +286,13 @@ Every node receives `Deps`; no module-level clients, no globals. Tests construct
 
 ```python
 def create_app(deps: Deps | None = None) -> FastAPI:
-    deps = deps or build_prod_deps()          # from graph/deps.py
-    app = FastAPI(title="consilium", version="1.0.0",
-                  docs_url=None if prod else "/docs")
+    deps = deps or build_prod_deps()  # from graph/deps.py
+    app = FastAPI(title="consilium", version="1.0.0", docs_url=None if prod else "/docs")
     app.state.deps = deps
     app.include_router(health_router)
     app.include_router(cases_router, prefix="/v1", dependencies=[Depends(require_auth)])
-    app.include_router(review_router,  prefix="/v1", dependencies=[Depends(require_clinician)])
-    app.add_exception_handler(AppError, problem_json_handler)   # RFC 7807
+    app.include_router(review_router, prefix="/v1", dependencies=[Depends(require_clinician)])
+    app.add_exception_handler(AppError, problem_json_handler)  # RFC 7807
     app.add_middleware(OTelMiddleware)
     return app
 ```
@@ -313,15 +312,15 @@ def create_app(deps: Deps | None = None) -> FastAPI:
 **State object** (`graph/state.py`) — persisted (as JSON snapshot) after every node:
 
 ```python
-class CaseState(BaseModel):                 # pydantic, strict
+class CaseState(BaseModel):  # pydantic, strict
     case_id: str
-    status: CaseStatus                      # the §10 state machine enum
+    status: CaseStatus  # the §10 state machine enum
     idempotency_key: str | None
     created_by: str
     laterality: Laterality = Laterality.UNKNOWN
     image_sha256: str | None
     image_uri: str | None
-    raw_note_redacted: str | None           # never logged; encrypted at rest
+    raw_note_redacted: str | None  # never logged; encrypted at rest
     note: ClinicalNote | None
     extraction: NoteExtraction | None
     raw_vision: RawVisionOutput | None
@@ -335,7 +334,7 @@ class CaseState(BaseModel):                 # pydantic, strict
     draft_revision: int = 0
     open_issues: tuple[Issue, ...] = ()
     unverified: bool = False
-    failure: FailureRecord | None           # {type, node, reason, retryable}
+    failure: FailureRecord | None  # {type, node, reason, retryable}
     last_node: str
 ```
 
@@ -396,10 +395,15 @@ Rules (I-13): **no** CDR, tiers, quality scores, or calibrated probabilities —
 class VisionClient(Protocol):
     async def predict(self, image: bytes) -> RawVisionOutput: ...
 
+
 @dataclass(frozen=True)
 class VisionHttpClient:
-    base_url: str; api_token: str; http: httpx.AsyncClient
-    pinned_revision: str; timeout_s: float = 120.0; max_attempts: int = 4
+    base_url: str
+    api_token: str
+    http: httpx.AsyncClient
+    pinned_revision: str
+    timeout_s: float = 120.0
+    max_attempts: int = 4
     # retries ONLY on 503/timeout/connection errors (cold start), backoff+jitter;
     # checks response.endpoint_revision == pinned_revision else VisionRevisionMismatch
 ```
@@ -438,19 +442,32 @@ Confidence `low` → builder emits `note.caveat.extraction`; Director must carry
 
 ```python
 class F:
-    P_CAL = "cad.p_glaucoma.calibrated";  P_TIER = "cad.p_glaucoma.tier"
-    CDR_V = "cad.cdr.vertical";           CDR_A = "cad.cdr.area_based"
-    DISC_AREA = "cad.disc.area_px";       CUP_AREA = "cad.cup.area_px"
-    DISC_VD = "cad.disc.vdiam_px";        CUP_VD = "cad.cup.vdiam_px"
-    Q_SCORE = "cad.quality.score";        Q_FLAGS = "cad.quality.flags"
-    MASKQC = "cad.maskqc.ok";             LAT = "cad.laterality"
-    AGE = "note.age";                     IOP_OD = "note.iop.od"; IOP_OS = "note.iop.os"
-    MEDS = "note.meds";                   INTOL = "note.intolerances"
-    COMORB = "note.comorbidities";        PRIOR_DX = "note.prior_dx"
-    EXAM = "note.exam_findings";          FREE = "note.free_text"
+    P_CAL = "cad.p_glaucoma.calibrated"
+    P_TIER = "cad.p_glaucoma.tier"
+    CDR_V = "cad.cdr.vertical"
+    CDR_A = "cad.cdr.area_based"
+    DISC_AREA = "cad.disc.area_px"
+    CUP_AREA = "cad.cup.area_px"
+    DISC_VD = "cad.disc.vdiam_px"
+    CUP_VD = "cad.cup.vdiam_px"
+    Q_SCORE = "cad.quality.score"
+    Q_FLAGS = "cad.quality.flags"
+    MASKQC = "cad.maskqc.ok"
+    LAT = "cad.laterality"
+    AGE = "note.age"
+    IOP_OD = "note.iop.od"
+    IOP_OS = "note.iop.os"
+    MEDS = "note.meds"
+    INTOL = "note.intolerances"
+    COMORB = "note.comorbidities"
+    PRIOR_DX = "note.prior_dx"
+    EXAM = "note.exam_findings"
+    FREE = "note.free_text"
     CAVEAT_EXTRACTION = "note.caveat.extraction"
+
     @staticmethod
-    def caveat(flag: str) -> str: return f"cad.caveat.{flag}"
+    def caveat(flag: str) -> str:
+        return f"cad.caveat.{flag}"
 ```
 
 **`builder.build(cad, note, extraction, case_id) -> GlobalContext`** — emits one `Fact` per field (units attached), plus `cad.caveat.<flag>` for every quality flag / QC failure / low extraction confidence. Guarantees: unique IDs, every CAD field represented, caveat completeness. Free-text facts (`note.exam_findings`, `note.free_text`) carry `source=NOTE` and are marked untrusted in rendering.
@@ -490,13 +507,26 @@ Mechanics: allowlist match on fact IDs (`cad.caveat.*` glob supported); **deny-b
 ```python
 class ParsedResponse(BaseModel, Generic[T]):
     data: T
-    model: str; prompt_version: str | None
-    input_tokens: int; output_tokens: int; latency_ms: float; attempts: int
+    model: str
+    prompt_version: str | None
+    input_tokens: int
+    output_tokens: int
+    latency_ms: float
+    attempts: int
+
 
 class LLMClient(Protocol):
-    async def generate(self, messages: list[ChatMessage], response_model: type[T],
-                       *, model: str, temperature: float, max_output_tokens: int,
-                       timeout_s: float, tags: dict[str, str]) -> ParsedResponse[T]: ...
+    async def generate(
+        self,
+        messages: list[ChatMessage],
+        response_model: type[T],
+        *,
+        model: str,
+        temperature: float,
+        max_output_tokens: int,
+        timeout_s: float,
+        tags: dict[str, str],
+    ) -> ParsedResponse[T]: ...
 ```
 
 **`client_openai.py`** — the only OpenAI SDK import. Uses Responses/Chat structured-output parsing bound to the Pydantic model (verify SDK API for the pinned version — do not rely on memory). Behavior:
@@ -920,7 +950,7 @@ tier(p_calibrated) via thresholds.yaml cutoffs chosen to a stated operating poin
 
 ### 16.3 Leak property test (`tests/unit/test_router_leak.py`)
 ```python
-@given(global_contexts())                      # hypothesis strategy: random facts, values, notes
+@given(global_contexts())  # hypothesis strategy: random facts, values, notes
 def test_no_leak(ctx):
     for role, rc in route(ctx, cfg).items():
         rendered = render_prompt(role, rc)
@@ -928,7 +958,7 @@ def test_no_leak(ctx):
             if f.id not in rc.allowed_ids():
                 assert f.id not in rendered
                 assert f.label not in rendered
-                assert str(f.value) not in rendered      # numeric-value leakage
+                assert str(f.value) not in rendered  # numeric-value leakage
 ```
 
 ### 16.4 Audit loop (`verify/merge.py` + graph `audit` node)
