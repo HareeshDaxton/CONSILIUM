@@ -24,6 +24,7 @@ from __future__ import annotations
 import asyncio
 import random
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TypeVar
 
@@ -146,6 +147,7 @@ async def generate_structured(
     max_repairs: int = 2,
     retry_policy: LLMRetryPolicy | None = None,
     budget: TokenBudget | None = None,
+    output_validator: Callable[[T], str | None] | None = None,
 ) -> ParsedResponse[T]:
     """Structured call with bounded repair retries (AGENTS.md §10 step 3, I-8).
 
@@ -155,10 +157,16 @@ async def generate_structured(
     closed with ``ValidationFailure`` → case FAILED (I-5). When ``budget`` is
     given, every successful response (initial or repair) is charged against
     the shared per-case ledger.
+
+    ``output_validator`` is an optional post-schema semantic check
+    (e.g. the specialist scope check: refs ⊆ allowed_ids, plan Section 5.4).
+    It returns ``None`` when the parsed output is acceptable, or an error
+    summary that is fed back through the SAME bounded repair loop.
     """
     policy = retry_policy or LLMRetryPolicy()
     conversation = list(messages)
     for attempt in range(1, max_repairs + 2):  # 1 initial + max_repairs repairs
+        error_summary: str | None
         try:
             resp = await generate_with_retry(
                 client,
@@ -173,16 +181,19 @@ async def generate_structured(
                 budget=budget,
             )
         except ModelOutputInvalid as exc:
-            if attempt > max_repairs:
-                logger.warning("llm.output_invalid", extra={"attempts": attempt})
-                raise ValidationFailure(
-                    "LLM_OUTPUT_INVALID",
-                    detail=f"schema validation failed after {attempt} attempt(s)",
-                ) from None
-            conversation = [
-                *conversation,
-                ChatMessage(role="user", content=_REPAIR_HINT.format(error=exc.error_summary)),
-            ]
-            continue
-        return resp.model_copy(update={"attempts": attempt})
+            error_summary = exc.error_summary
+        else:
+            error_summary = output_validator(resp.data) if output_validator is not None else None
+            if error_summary is None:
+                return resp.model_copy(update={"attempts": attempt})
+        if attempt > max_repairs:
+            logger.warning("llm.output_invalid", extra={"attempts": attempt})
+            raise ValidationFailure(
+                "LLM_OUTPUT_INVALID",
+                detail=f"schema validation failed after {attempt} attempt(s)",
+            ) from None
+        conversation = [
+            *conversation,
+            ChatMessage(role="user", content=_REPAIR_HINT.format(error=error_summary)),
+        ]
     raise AssertionError("unreachable")  # pragma: no cover
