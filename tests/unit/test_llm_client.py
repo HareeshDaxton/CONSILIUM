@@ -9,14 +9,10 @@ from typing import Any
 import pytest
 
 from consilium.core.errors import AgentFailure, ValidationFailure
-from consilium.llm.client import (
-    ChatMessage,
-    LLMRetryPolicy,
-    generate_structured,
-    generate_with_retry,
-)
+from consilium.llm.client import ChatMessage
 from consilium.llm.client_fake import CannedCall, CannedResponse, FakeLLMClient, FakeMode
 from consilium.llm.client_openai import OpenAILLMClient
+from consilium.llm.retry import LLMRetryPolicy, generate_structured, generate_with_retry
 from consilium.schemas.enums import AgentName
 from consilium.schemas.note import ClinicalNote
 
