@@ -15,9 +15,7 @@ def test_load_real_note_extractor_prompt() -> None:
     prompt = PromptLoader().load("note_extractor", "v1")
     assert prompt.component == "note_extractor"
     assert prompt.version == "v1"
-    assert prompt.content == (PROMPTS_ROOT / "note_extractor" / "v1.md").read_text(
-        encoding="utf-8"
-    )
+    assert prompt.content == (PROMPTS_ROOT / "note_extractor" / "v1.md").read_text(encoding="utf-8")
 
 
 def test_identity_carried_for_agent_runs() -> None:
