@@ -11,7 +11,7 @@ anything only the user can do (account registrations, dataset downloads, API
 keys into `.env`, tool installs, OS policy changes). If the list is empty,
 the section needed no manual work.
 
-Current position: **PHASE 2 COMPLETE — Sections 2.1–2.5 done. Next: Phase 3, Section 3.1 note intake: de-identification (awaiting go-ahead).**
+Current position: **PHASE 3 COMPLETE (3.1–3.4); PHASE 4 COMPLETE (4.1–4.4 — 4.4 leak property test was written ahead of the pause and is green). Next: Phase 5, Section 5.1 LLMClient hardening + specialist agents (awaiting go-ahead).**
 
 ---
 
@@ -1040,10 +1040,423 @@ install RTK (`rtk init -g`) or expect plain output. Empty stray
 ---
 
 
-### Section X.Y — <name> ✅ DONE / 🚧 IN PROGRESS
-**Goal (from implementation plan):** …
-**What was done — files created/changed** …
-**Key decisions & reasons** …
-**Verified (commands run)** …
-**Deferred / not verified** …
-**CLINICAL-REVIEW items** …
+## Phase 3 — Note intake
+
+### Section 3.1 — De-identification ✅ DONE
+
+**Goal (from implementation plan):** `configs/guardrails/policies/phi_patterns.yaml`
+(pattern name + regex + action; values never stored — names only) and
+`intake/deidentify.py` `redact(text) -> (redacted_text, pattern_names)`.
+Exit: de-identification unit suite green.
+
+**What was done — files created/changed**
+- `configs/guardrails/policies/phi_patterns.yaml` — 6 patterns, all
+  `action: redact`: `phone_number` (3-3-4 grouping only, so ISO dates/IOP
+  numbers can't match), `email_address`, `ssn`, `medical_record_number`
+  (labelled only: MRN / Medical Record Number / Patient ID / Hospital No),
+  `date_of_birth` (labelled only, both D/M/Y and ISO Y-M-D shapes),
+  `named_person` (labelled only; label match case-insensitive via inline
+  `(?i:...)`, name part case-SENSITIVE so "name of the drug" survives).
+  Header documents the accepted residual risk: unlabelled names/dates are
+  NOT caught — the typed ClinicalNote contract (no name/DOB fields) covers it.
+- `src/consilium/intake/deidentify.py` — `PhiPattern`/`PhiPolicy` (Strict
+  models, extra=forbid so config typos fail loudly; list→tuple coercion
+  validators because YAML emits lists under strict mode), `load_phi_patterns`,
+  `RedactionResult` (frozen dataclass), `redact()`: in-order application,
+  `[REDACTED:<pattern_name>]` placeholder (name only, never the match value),
+  pattern names unique in first-firing order.
+- `tests/unit/test_deidentify.py` — 27 tests: one positive per pattern (14),
+  benign near-misses that must NOT fire (ISO dates, "2-4 months", IOP
+  readings, ages, month-name dates, visual-acuity ratios, lowercase "name",
+  decimal ranges), multi-pattern order/uniqueness, string-boundary matches,
+  repeated matches, determinism, and the I-6 proof that no matched VALUE
+  appears in any output (redacted text or pattern names).
+
+**Key decisions & reasons**
+- Identifiers require a label or a rigid shape by design: plain dates and
+  number ranges are clinical content, and regexes that eat clinical content
+  are a named pitfall in the note-extraction skill.
+- `action` is a Literal["redact"] — "block" decisions belong to the input
+  rail (3.3), not the de-identifier; unknown actions fail validation.
+- Strict-mode YAML loading needs list→tuple `mode="before"` validators
+  (pydantic strict rejects list for tuple) — same pattern any future YAML
+  config loader will need.
+
+**Verified (commands run)**
+- `uv run pytest tests/unit/test_deidentify.py -q` → **27 passed**
+  (two regex fixes found by tests: ISO DOB shape; case-insensitive label /
+  case-sensitive name split).
+- Full battery: `uv run pytest -m "not live" -q` → **285 passed**
+  (258 prior + 27 new), coverage 99%; `uv run ruff check` + `format --check`
+  → clean (one import-sort + one line-length fixed); `uv run python -m mypy`
+  → no issues (44 source files); `uv run lint-imports --config importlinter.ini`
+  → 7 kept, 0 broken; schema snapshots up to date (21 models, untouched).
+
+**Deferred / not verified**
+- Section 3.2 (LLMClient + fake) was NOT started this session per user
+  instruction — two draft files (`llm/client.py`, `llm/client_openai.py`)
+  were written early, then DELETED so the tree holds only tested 3.1 work.
+  OpenAI SDK verified installed: v3.27.0, `chat.completions.parse` present.
+- Unlabelled free-text names (e.g. "saw John last week") are not redacted —
+  accepted risk documented in the YAML header.
+- `rtk` still not installed; commands run without the prefix (see 2.5 note).
+
+**CLINICAL-REVIEW items**
+- The pattern set itself is a privacy-policy decision: which identifier
+  classes must be caught (and the accepted unlabelled-name gap) should be
+  reviewed by the clinical/compliance co-author before any real note is
+  processed.
+
+**MANUAL STEPS FOR THE HUMAN (3.1)**
+1. None required to continue development.
+2. Before real data: review `configs/guardrails/policies/phi_patterns.yaml`
+   against the clinic's actual note formats (identifier labels vary by EHR).
+
+---
+
+### Section 3.2 — Minimal LLMClient + fake ✅ DONE
+
+**Goal (from implementation plan):** `llm/client.py` protocol (ParsedResponse[T],
+generate signature per ARCHITECTURE.md §5.7), `llm/client_openai.py` minimal
+structured-output impl verified against the pinned SDK, `llm/client_fake.py`
+canned responses keyed by (agent, prompt_version, fixture) with modes
+valid/malformed/schema_violating/timeout/refusal.
+Exit: fake round-trip test; openai impl compile-checked (live-tagged stub).
+
+**What was done — files created/changed**
+- `src/consilium/llm/client.py` — `ChatMessage`, generic `ParsedResponse[T]`
+  (data + model + prompt_version + token counts + latency + attempts),
+  `LLMClient` Protocol, `LLMTransient` / `ModelOutputInvalid` exception split
+  (retryable transport vs repairable output), `LLMRetryPolicy` (wall-clock
+  budget wins over attempt count), `generate_with_retry` (exp backoff +
+  jitter → fail closed `AgentFailure(LLM_UNAVAILABLE)`), `generate_structured`
+  (≤2 repair retries with the validation summary fed back →
+  `ValidationFailure(LLM_OUTPUT_INVALID)`). Logging rule: counts/IDs only,
+  never message bodies (I-6/I-7).
+- `src/consilium/llm/client_openai.py` — the ONLY OpenAI SDK importer in src/
+  (import-linter contract). `chat.completions.parse` with `response_format`
+  bound to the Pydantic model (verified against openai 3.27.0, not memory).
+  Error map: timeout/429/5xx/connection → LLMTransient; refusal/content-filter
+  → AgentFailure(LLM_REFUSAL, never retried); validation/truncation →
+  ModelOutputInvalid; other 4xx → AgentFailure(LLM_REQUEST_REJECTED).
+- `src/consilium/llm/client_fake.py` — deterministic; canned response is a
+  SEQUENCE of calls (timeout → valid etc.) so retry+repair paths are
+  exercisable; last call repeats. Validates payloads via
+  `model_validate_json` (JSON mode, matching the SDK parse path). Records
+  every received message list so tests can assert PHI was redacted BEFORE the
+  call (I-6).
+- `tests/unit/test_llm_client.py` — 9 tests: round-trip, transient retry then
+  success, budget exhaustion → LLM_UNAVAILABLE, refusal never retried,
+  malformed → repair → valid, repair exhaustion → ValidationFailure, repair
+  hint content, fake keying/sequence semantics.
+- `importlinter.ini` — `ignore_imports: consilium.llm.client_openai -> openai`
+  on the openai-forbidden contract (the one sanctioned SDK import site).
+
+**Key decisions & reasons**
+- Two failure channels (transport vs output) instead of one retry loop:
+  retrying a schema violation blindly wastes budget; repairing a timeout is
+  meaningless. Transient → backoff retry; invalid output → bounded repair.
+- Repair hint carries the validation summary ONLY (may echo note-derived
+  content → never logged/stored, I-6).
+- Full hardening polish (token budgets, metrics) deferred to Phase 5 by plan.
+
+**Verified (commands run)**
+- `uv run pytest tests/unit/test_llm_client.py -q` → **9 passed, 1 deselected**
+  (live contract stub, `-m live` only).
+
+**Deferred / not verified**
+- OpenAI impl not exercised against the real API (offline rule); the
+  live-tagged stub is for `make test-live`.
+
+**CLINICAL-REVIEW items** — none.
+
+---
+
+### Section 3.3 — Extraction pipeline ✅ DONE
+
+**Goal (from implementation plan):** `prompts/note_extractor/v1.md`
+(non-instructional input declaration, anti-over-extraction rule, output =
+ClinicalNote), `intake/extractor.py` + `intake/note_pipeline.py` in FIXED
+order: input rail → de-identify → LLM extract → validate → ≤2 repair retries
+→ else FAILED. Deterministic rail pre-checks inline for now (NeMo in P10).
+Exit: extraction unit suite green with FakeLLMClient.
+
+**What was done — files created/changed**
+- `configs/guardrails/policies/input_rail.yaml` — version, limits
+  (max_chars, max_control_char_fraction), instruction-like patterns.
+- `src/consilium/intake/input_rail.py` — deterministic first layer, runs
+  BEFORE de-identification and any LLM call: length cap (reject, never
+  truncate), control-char fraction, instruction-like patterns matched on
+  NFKC-normalized + zero-width-stripped text (homoglyph/invisible-char
+  smuggling can't bypass). Block → `PolicyViolation(NEEDS_ATTENTION)`
+  carrying rule NAME only, never matched content.
+- `prompts/note_extractor/v1.md` — declares input non-instructional,
+  extract-only-what-is-stated rule, ClinicalNote output contract (I-7/I-9).
+- `src/consilium/intake/extractor.py` — prompt loader, message builder (note
+  inside `<untrusted-clinical-note>` block), `extract_note` (temperature 0.0,
+  2000 max output tokens, ≤2 repairs via `generate_structured`),
+  `estimate_confidence`: DETERMINISTIC heuristic = count of populated
+  informative fields (≥4 HIGH, ≥1 MODERATE, else LOW); LLM self-confidence
+  not trusted (§10.5).
+- `src/consilium/intake/note_pipeline.py` — `run(raw_text) -> NoteExtraction`
+  with the fixed order and fail-closed mapping: rail block → NEEDS_ATTENTION,
+  LLM unreachable → FAILED, invalid output after repairs → FAILED. Assembles
+  provenance every run: model snapshot, prompt version, redaction pattern
+  NAMES (never values), confidence.
+- `src/consilium/context/facts.py` — added `CAVEAT_EXTRACTION` constant +
+  `caveat_for_extraction()` mapping (LOW → `note.caveat.extraction`, else
+  None); lives builder-side so intake never imports context (§5 boundary).
+- `tests/unit/test_input_rail.py` — 25 tests: caps, control chars, each
+  pattern, NFKC homoglyph bypass attempts, zero-width smuggling, name-only
+  error details.
+- `tests/unit/test_note_pipeline.py` — 8 tests: order enforcement (rail
+  before de-identify before LLM), PHI never reaches the fake's received
+  messages, redaction names in provenance, repair path, all fail-closed
+  branches, low-confidence marker.
+
+**Key decisions & reasons**
+- The rail rejects rather than truncates: silent data loss in a clinical
+  note is worse than a NEEDS_ATTENTION case.
+- Matching is done on normalized text but the ORIGINAL is stored/extracted —
+  normalization is a detection surface, not a mutation.
+- Confidence is computed, never asked: an LLM grading its own extraction is
+  not evidence.
+
+**Verified (commands run)**
+- `uv run pytest tests/unit/test_input_rail.py tests/unit/test_note_pipeline.py -q`
+  → **33 passed**.
+
+**Deferred / not verified**
+- NeMo model-based injection detection layers on top in P10; this is the
+  deterministic layer only (per plan).
+- Vague-note / injection-note behavior assertions live in 3.4's adversarial
+  suite.
+
+**CLINICAL-REVIEW items**
+- `# CLINICAL-REVIEW:` on the confidence heuristic thresholds in
+  `extractor.py` (≥4 fields = HIGH is a first proposal).
+
+---
+
+### Section 3.4 — Provenance + adversarial note suite ✅ DONE
+
+**Goal (from implementation plan):** NoteExtraction assembled on every run
+(model snapshot, prompt version, redaction names, heuristic confidence);
+`tests/adversarial/` covering injection notes, PHI-in-note, oversized input,
+unicode homoglyphs, multilingual noise, extractor-redirection; synthetic
+fixture generator committed.
+Exit: adversarial suite green; confidence=low path emits the caveat marker
+P4's builder consumes.
+
+**What was done — files created/changed**
+- `scripts/make_fixtures.py` — 5 new synthetic adversarial notes (`adv_*`):
+  PHI-in-note (fabricated identifiers), full-width homoglyph injection,
+  zero-width smuggling, multilingual noise (FR/ZH/ES), extractor-redirection
+  ("write down IOP 45"). Header documents the values are fabricated.
+- `tests/fixtures/synthetic_notes.json` + `tests/fixtures/PROVENANCE.md` —
+  regenerated; provenance updated for the adv_* cases.
+- `tests/adversarial/test_note_intake.py` — 12 tests: PHI redacted before the
+  LLM (asserted on the fake's received messages; pattern names only in
+  provenance), homoglyph/zero-width injection blocked by the rail,
+  oversized input rejected not truncated, multilingual noise handled,
+  redirection note does not plant values (extractor behavior unchanged;
+  "IOP 45" does not appear in the extracted fields), low-confidence
+  extraction → `note.caveat.extraction` marker via `caveat_for_extraction`.
+- `pyproject.toml` — per-file-ignores: RUF001/RUF002 for tests/ and scripts/
+  (ambiguous-unicode rules would flag the intentional adversarial fixtures).
+
+**Key decisions & reasons**
+- The anti-redirection test asserts on EXTRACTION BEHAVIOR with the fake
+  (the deterministic surface we control), not on what a real model would do —
+  real-model robustness is the input rail + prompt contract + P10 NeMo.
+- Fixture PHI is generated by the committed script from a synthetic persona;
+  no real identifiers anywhere (I-6).
+
+**Verified (commands run)**
+- `uv run pytest tests/adversarial/ -q` → **12 passed**.
+
+**Deferred / not verified** — none for this section.
+
+**CLINICAL-REVIEW items** — none new (pattern set review carried from 3.1).
+
+**PHASE 3 EXIT:** full intake suite green, offline. ✅
+
+---
+
+## Phase 4 — Context Builder & Router
+
+### Section 4.1 — Context Builder ✅ DONE
+
+**Goal (from implementation plan):** `context/builder.py`: CADResult +
+ClinicalNote + NoteExtraction → GlobalContext; one Fact per field with units;
+caveat facts for every quality flag / QC failure / low extraction confidence;
+unique IDs; every CAD field represented.
+Exit: builder unit tests incl. caveat-completeness cases.
+
+**What was done — files created/changed**
+- `src/consilium/context/builder.py` — `build(cad, note, extraction,
+  case_id)`: 12 required CAD facts always emitted (calibrated p, tier, both
+  CDRs, areas, vertical diameters, quality score/flags, maskqc, laterality),
+  `cad.caveat.<flag>` per quality flag, `cad.caveat.mask_qc` on QC failure,
+  note facts only for populated optional fields (a fact that does not exist
+  cannot be cited), `note.caveat.extraction` when extraction confidence is
+  LOW. Defensive required-set check before returning.
+- `tests/unit/test_context_builder.py` — 8 tests: full CAD coverage + values,
+  units attached, caveat per flag, mask-QC caveat, extraction caveat only on
+  LOW, empty optionals omitted, no-note ⇒ no note facts, ID uniqueness (plus
+  schema-level duplicate rejection).
+
+**Key decisions & reasons**
+- Optional note fields are OMITTED, not emitted as null: evidence_refs must
+  resolve, and a null fact invites citation of nothing (I-3).
+- Caveats are first-class CAD/NOTE facts so routing and the verifier treat
+  them like any other evidence (§9.1).
+
+**Verified (commands run)**
+- `uv run pytest tests/unit/test_context_builder.py -q` → **8 passed**.
+
+**Deferred / not verified** — none.
+**CLINICAL-REVIEW items** — none.
+
+---
+
+### Section 4.2 — Routing config + Router ✅ DONE
+
+**Goal (from implementation plan):** `configs/routing.yaml` allowlists per
+ARCHITECTURE.md §5.6 with glob support and a CLINICAL-REVIEW pending header;
+`context/router.py` pure deny-by-default projection, no LLM, no fallback;
+routing_version = sha256(yaml) stamped on every RoleContext.
+Exit: router unit tests (grant, deny-default, glob, hash stability).
+
+**What was done — files created/changed**
+- `configs/routing.yaml` — per-role allowlists implementing the §9.2 table:
+  pharmacist gets tier/laterality/age/IOP/prior_dx/meds/intolerances/
+  comorbidities/extraction-caveat and NO pixel-level or calibrated-number
+  facts; optometrist adds calibrated p + vertical CDR + quality/caveats but
+  not areas/diameters; ophthalmologist gets everything except meds/
+  intolerances/comorbidities. Header: proposal v0.1, reviewer TBD, date TBD,
+  `# CLINICAL-REVIEW: pending`.
+- `src/consilium/context/router.py` — `RoutingConfig`/`RoleRouting` (Strict;
+  list→tuple coercion; role-key coercion; extra=forbid so typos fail loudly),
+  `load_routing_config` (version = sha256 of raw bytes), `route()` pure
+  projection via fnmatch (`cad.caveat.*` glob), fact order preserved.
+- `tests/unit/test_router.py` — 7 tests: per-role grant set vs the policy
+  table, deny-by-default (unlisted fact delivered to nobody), glob coverage
+  of caveat facts, sha256 stability + change sensitivity, role-context
+  stamping, empty-allow role, config typo rejection.
+
+**Key decisions & reasons**
+- The version hash is over the RAW FILE BYTES, not the parsed structure: a
+  comment edit changes the hash — the policy artifact is the file (§9.2).
+- Router is a pure function with config injected: no settings singleton, no
+  I/O at route time (I-2 testability).
+
+**Verified (commands run)**
+- `uv run pytest tests/unit/test_router.py -q` → **7 passed**.
+
+**Deferred / not verified** — none.
+**CLINICAL-REVIEW items**
+- The whole routing table is a clinical judgement pending clinician co-author
+  review (reviewer/date to be recorded in `routing.yaml` before freeze).
+
+---
+
+### Section 4.3 — Fact rendering for prompts ✅ DONE
+
+**Goal (from implementation plan):** `agents/templates.py` `render_facts`:
+structured block with trusted / untrusted sections per ARCHITECTURE.md §9;
+untrusted note text delimited and declared non-instructional.
+Exit: render snapshot tests; untrusted block delimiters asserted.
+
+**What was done — files created/changed**
+- `src/consilium/agents/templates.py` — `render_facts(RoleContext) -> str`:
+  `[trusted-cad-facts]` (CAD/DERIVED sources), `[clinician-note-facts]`
+  (typed note facts), then `UNTRUSTED_DECLARATION` + `[untrusted-data
+  source="clinician-note"]` with quoted values for `note.exam_findings` /
+  `note.free_text` (I-7). Deterministic: same input → identical output (no
+  timestamps/randomness); bools render lowercase, tuples comma-joined, units
+  appended.
+- `tests/unit/test_templates.py` — 5 tests: section split and ordering,
+  untrusted declaration + delimiters + quoting present, deterministic
+  re-render equality, absent untrusted facts ⇒ no untrusted section, value
+  formatting (units, tuples, bools).
+
+**Key decisions & reasons**
+- Trust split is by FactSource + explicit UNTRUSTED_IDS (from facts.py, never
+  inline strings) — a fact cannot accidentally change sections.
+- Rendering lives in agents/ (prompt concern), fact IDs in context/ (contract)
+  — boundary per §5.
+
+**Verified (commands run)**
+- `uv run pytest tests/unit/test_templates.py -q` → **5 passed**.
+
+**Deferred / not verified** — none.
+**CLINICAL-REVIEW items** — none.
+
+---
+
+### Section 4.4 — Leak property tests ✅ DONE (written ahead of the pause)
+
+**Goal (from implementation plan):** `tests/unit/test_router_leak.py`:
+hypothesis strategy generating random GlobalContexts (random values incl.
+note text quoting CDR-like numbers); for every role assert no forbidden fact
+ID, label, or VALUE string appears in the rendered prompt; ≥1000 examples;
+a seeded deliberate leak is caught.
+
+**What was done — files created/changed**
+- `tests/unit/test_router_leak.py` — composite strategy builds random
+  CADResult (distinctive 12-decimal floats, random quality flags, mask-qc,
+  tier, laterality) + optional ClinicalNote/NoteExtraction through the REAL
+  builder, with `note.free_text` deliberately quoting the CDR and calibrated
+  probability (the §9.2 derived-text pitfall). Property (1000 examples per
+  role, derandomized): route with the REAL `configs/routing.yaml`, render,
+  assert no forbidden fact ID/label/distinctive value string appears —
+  "forbidden" decided by the POLICY patterns, not by what was delivered, so
+  a hand-injected fact is caught too (seeded-leak test proves the check has
+  teeth).
+
+**Key decisions & reasons**
+- Two real subtleties found by hypothesis, handled in the strategy:
+  (1) float `str()` trailing-zero trimming makes one float a substring of
+  another (`0.12345678901` ⊂ `0.123456789012`) — strategy assumes pairwise
+  non-substring floats; (2) fully arbitrary untrusted text can literally
+  contain a forbidden fact ID ("note.meds") as a coincidence — the routing
+  guarantee is about which FACTS are delivered, not substring censorship of
+  text a role is allowed to read, so untrusted text is token-generated
+  (no dotted fragments). Documented in the test docstrings.
+- Int/short-string values are excluded from value checks (too
+  collision-prone to be evidence of a leak).
+
+**Verified (commands run)**
+- `uv run pytest tests/unit/test_router_leak.py -q` → **4 passed**
+  (1000 examples × 3 roles + seeded leak, ~47s).
+
+**Deferred / not verified** — none.
+**CLINICAL-REVIEW items** — none.
+
+**PHASE 4 EXIT:** isolation proven by property test (≥1000 examples/role);
+routing.yaml marked CLINICAL-REVIEW pending. ✅
+
+---
+
+### Session-end battery (sections 3.2–4.4, this session)
+- `uv run pytest -m "not live" -q` → **363 passed, 1 deselected**, coverage 97%.
+- `uv run python -m mypy` → no issues (53 source files).
+- `uv run ruff check` → clean; `uv run ruff format --check` → clean after
+  reformatting: ruff in .venv is now 0.16.10 which ALSO formats Python code
+  fences inside Markdown; `AGENTS.md` + `doc/ARCHITECTURE.md` committed
+  versions failed the check (pre-existing, fence whitespace only) and were
+  reformatted — no prose content changed.
+- `uv run lint-imports --config importlinter.ini` → 7 kept, 0 broken.
+- `uv run python scripts/schema_snapshot.py --check` → up to date (21 models).
+- `rtk` is INSTALLED this session (v0.50.0) and used for all shell commands.
+
+**MANUAL STEPS FOR THE HUMAN (3.2–4.4)**
+1. Review + commit the files listed in the session chat (commit messages
+   provided there per file).
+2. Clinician co-author: review `configs/routing.yaml` (record reviewer/date)
+   and the confidence thresholds in `extractor.py` when available.
+
+---
+
+
