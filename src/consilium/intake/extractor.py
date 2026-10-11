@@ -16,13 +16,10 @@ confidence makes the Context Builder (P4) emit ``note.caveat.extraction``.
 from pathlib import Path
 
 from consilium.core.settings import DEFAULT_MODEL_SNAPSHOT
-from consilium.llm.client import (
-    ChatMessage,
-    LLMClient,
-    LLMRetryPolicy,
-    ParsedResponse,
-    generate_structured,
-)
+from consilium.llm.budget import TokenBudget
+from consilium.llm.client import ChatMessage, LLMClient, ParsedResponse
+from consilium.llm.prompt_loader import PromptLoader
+from consilium.llm.retry import LLMRetryPolicy, generate_structured
 from consilium.schemas.enums import AgentName, Confidence
 from consilium.schemas.note import ClinicalNote
 
@@ -41,6 +38,10 @@ _MAX_OUTPUT_TOKENS = 2000  # ClinicalNote is small; caps runaway generations
 
 def load_extractor_prompt(path: Path = PROMPT_PATH) -> str:
     """Load the versioned extractor prompt (immutable once released — I-9)."""
+    # Delegates to the shared loader (Section 5.2); ``path`` stays injectable
+    # for tests.
+    if path == PROMPT_PATH:
+        return PromptLoader().load("note_extractor", PROMPT_VERSION).content
     return path.read_text(encoding="utf-8")
 
 
@@ -70,6 +71,7 @@ async def extract_note(
     timeout_s: float = 60.0,
     max_repairs: int = 2,
     retry_policy: LLMRetryPolicy | None = None,
+    budget: TokenBudget | None = None,
     fixture: str | None = None,
 ) -> ParsedResponse[ClinicalNote]:
     """One extraction call with transient retry + bounded repair (I-5/I-8)."""
@@ -90,6 +92,7 @@ async def extract_note(
         tags=tags,
         max_repairs=max_repairs,
         retry_policy=retry_policy,
+        budget=budget,
     )
 
 
