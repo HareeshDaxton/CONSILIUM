@@ -8,6 +8,8 @@ reference them; agents cite them in evidence_refs.
 Shape follows ARCHITECTURE.md §5.6 exactly.
 """
 
+from consilium.schemas.enums import Confidence
+
 
 class F:
     # --- CAD facts (source: vision post-processing, I-1) ---
@@ -40,3 +42,11 @@ class F:
     def caveat(flag: str) -> str:
         """Caveat fact ID for a quality flag: ``cad.caveat.<flag>``."""
         return f"cad.caveat.{flag}"
+
+
+def caveat_for_extraction(confidence: Confidence) -> str | None:
+    """Caveat fact ID the Context Builder (P4) must emit for this extraction
+    confidence (AGENTS.md §10.5): ``note.caveat.extraction`` when LOW, else
+    None. Intake never imports this module (§5 boundary) — the mapping lives
+    on the builder side by design."""
+    return F.CAVEAT_EXTRACTION if confidence is Confidence.LOW else None
