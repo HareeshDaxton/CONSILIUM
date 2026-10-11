@@ -17,10 +17,11 @@ typo or a future wiring mistake from becoming a path traversal.
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 from jinja2 import Environment, StrictUndefined
 
@@ -40,7 +41,8 @@ class Prompt:
 
     @cached_property
     def _template(self) -> Any:
-        env = Environment(undefined=StrictUndefined, autoescape=False)
+        # autoescape=False is correct: prompts are plain-text LLM input, never HTML.
+        env = Environment(undefined=StrictUndefined, autoescape=False)  # noqa: S701
         return env.from_string(self.content)
 
     def render(self, context: Mapping[str, Any] | None = None) -> str:
