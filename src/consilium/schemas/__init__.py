@@ -12,7 +12,13 @@ from consilium.schemas.agents import (
     Recommendation,
     SubReport,
 )
-from consilium.schemas.audit import CriticVerdict, Issue
+from consilium.schemas.audit import (
+    UNVERIFIED_BANNER,
+    AuditResult,
+    CriticVerdict,
+    Issue,
+    MergedVerdict,
+)
 from consilium.schemas.base import Strict
 from consilium.schemas.context import Fact, GlobalContext, RoleContext
 from consilium.schemas.enums import (
@@ -39,7 +45,9 @@ from consilium.schemas.vision import (
 )
 
 __all__ = [
+    "UNVERIFIED_BANNER",
     "AgentName",
+    "AuditResult",
     "CADResult",
     "CDRMetrics",
     "CaseStatus",
@@ -61,6 +69,7 @@ __all__ = [
     "Laterality",
     "MaskQC",
     "Measurements",
+    "MergedVerdict",
     "NoteExtraction",
     "QualityFlag",
     "RawVisionOutput",
