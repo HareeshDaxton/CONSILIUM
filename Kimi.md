@@ -11,7 +11,7 @@ anything only the user can do (account registrations, dataset downloads, API
 keys into `.env`, tool installs, OS policy changes). If the list is empty,
 the section needed no manual work.
 
-Current position: **PHASE 5 COMPLETE (5.1–5.4); PHASE 6 COMPLETE (6.1–6.3); PHASE 7 COMPLETE (7.1–7.3; verifier exactness proven on unit tests + fault corpus, per-fault-class deterministic recall stored at tests/fixtures/fault_injection_deterministic_v1.json). Next: Phase 8, Section 8.1 — LLM Critic prompt + agent.**
+Current position: **PHASE 8 IN PROGRESS — Section 8.1 DONE (LLM Critic prompt + agent). Next: Section 8.2 — merge + bounded loop logic (`verify/merge.py`).**
 
 ---
 
@@ -2163,5 +2163,98 @@ Clean-draft false-rejection rate: **0.0** (0/1 rejected).
 - `src/consilium/eval/fault_injection.py` → feat(eval): add seeded fault-injection corpus and deterministic-layer recall measurement (§13.4)
 - `tests/fixtures/fault_injection_deterministic_v1.json` + `tests/fixtures/PROVENANCE.md` → test(eval): store measured deterministic fault-injection recall as a drift-checked fixture (I-11)
 - `Kimi.md` → docs: log section 7.3 and mark phase 7 complete (7.1–7.3)
+
+---
+
+## Phase 8 — LLM Critic + Merge + Bounded Loop
+
+### Section 8.1 — Critic prompt + agent ✅ DONE
+
+**Goal (from implementation plan):** `prompts/critic/v1.md` (claim-vs-facts
+entailment audit; input = claims + GlobalContext facts ONLY; note facts =
+evidence of what the clinician wrote); `agents/critic_agent.py` +
+`verify/critic.py` running on `LLM_MODEL_CRITIC` — different snapshot or at
+minimum temperature 0 vs director; output `CriticVerdict`.
+Exit: critic unit tests with FakeLLMClient; config test asserting critic
+model/setting differs from director.
+
+**What was done — files created/changed**
+- `prompts/critic/v1.md` (NEW) — adversarial entailment audit prompt. Sees
+  ONLY the draft claims/disagreements/impression/limitations + fact sheet
+  (never specialist prose, never Director reasoning). Explicit exclusions:
+  no numeric tolerance math, no forbidden-language lexicon (deterministic
+  layer owns both), no recomputed/invented numbers (I-1), no definitive
+  diagnosis/stage/doses (I-12). Note free text rendered as untrusted data
+  (I-7); a claim resting ONLY on instruction-like content in the untrusted
+  block is `unsupported`. Preserved disagreement is explicitly NOT an issue.
+- `src/consilium/agents/templates.py` (CHANGED) — added `render_claims()`:
+  deterministic rendering of a `DirectorDraft` for the Critic prompt
+  (claims in order with kind/evidence_refs/source_roles/numeric fields, then
+  disagreements, impression, limitations, each in delimited blocks).
+- `src/consilium/agents/critic_agent.py` (NEW) — `Critic` agent on the same
+  bounded repair loop as the specialists (I-8): structured `CriticVerdict`
+  output via `generate_structured`, plus a semantic `output_validator`:
+  every issue's `claim_id` must be null or an existing claim ID, every
+  `evidence` entry must be a fact ID from the GlobalContext; repair hints
+  name IDs only, never values (I-6); exhaustion fails closed with
+  `ValidationFailure` (I-5). `round` is stamped by code after the model
+  returns (same discipline as `Director.revision`).
+- `src/consilium/verify/critic.py` (NEW) — thin façade `run_critic(draft,
+  global_ctx, round_, critic) -> CriticVerdict`; logs issue COUNTS only,
+  never content (I-6/I-7). Merge/loop live in Section 8.2.
+- `src/consilium/core/settings.py` (already in place from an earlier phase,
+  exercised here): `llm_model_critic`, `llm_temperature_critic` (default 0.0)
+  and `_check_critic_differs_from_director` — startup refusal when critic and
+  director share BOTH model and temperature (§13.2).
+- `tests/unit/test_critic.py` (NEW, 10 tests) — prompt renders with fixture
+  inputs; approve path stamps round from code not model; façade returns
+  verdict + logs counts; reject path passes issues through with
+  `raised_by="llm_critic"`; unknown claim_id repaired with ID-only hint;
+  persistent bad claim_id fails closed after the bounded retries; unknown
+  evidence fact ID fails closed; refusal fails closed never retried;
+  settings rejects identical critic/director configuration; default settings
+  have critic differing from director.
+
+**Key decisions & reasons**
+- The Critic never duplicates deterministic checks (tolerance math, lexicon)
+  — the prompt says so explicitly; semantic entailment only (§13.2).
+- Reference validation is a post-schema semantic validator inside the SAME
+  repair loop as the specialists, so a hallucinated claim/fact ID gets a
+  bounded repair chance before failing closed.
+- `round` stamped by code, not the model — bookkeeping never trusted to the
+  LLM.
+
+**Verified (commands run)**
+- `rtk uv run pytest tests/unit/test_critic.py -q` → **10 passed**.
+- `rtk uv run ruff check src tests prompts` → clean.
+
+**Deferred / not verified**
+- `mypy --strict src/` could NOT be run this session: the WDAC/Application
+  Control policy on this machine now also blocks mypy's compiled `librt`
+  DLL via `uv run python -m mypy` (previously only the console script was
+  blocked; force-reinstall to mypy 2.4.0 did not help — lock restored via
+  `uv sync --all-groups`). Code follows the same strict-typed patterns as
+  the phases that passed mypy, but this is unverified this session.
+- Critic behavior against a real LLM (schema-conformance rate) is the
+  `live/` suite's job; offline rule kept (§20).
+
+**CLINICAL-REVIEW items**
+- None new (critic audit scope is engineering; the entailment bar wording in
+  `prompts/critic/v1.md` may be reviewed alongside the other prompts).
+
+**MANUAL STEPS FOR THE HUMAN (8.1)**
+1. Whitelist the venv site-packages/scripts for WDAC so `mypy` runs again
+   (same policy class as the 2.2 SQLAlchemy and earlier mypy-script blocks),
+   then run `uv run python -m mypy` once to confirm no issues.
+2. Optional: `rtk init -g` to install the RTK hook (rtk reports none installed).
+3. Review + commit the files listed below.
+
+**Commit messages (8.1)**
+- `prompts/critic/v1.md` → feat(prompts): add critic v1 entailment-audit prompt over claims and fact sheet only (§13.2)
+- `src/consilium/agents/templates.py` → feat(agents): add render_claims for critic prompt input rendering
+- `src/consilium/agents/critic_agent.py` → feat(agents): add Critic agent with bounded repair loop and ID-only reference validation (I-6/I-8)
+- `src/consilium/verify/critic.py` → feat(verify): add run_critic façade logging issue counts only (I-6)
+- `tests/unit/test_critic.py` → test(verify): cover critic approve/reject, repair, fail-closed, and critic≠director config guard
+- `Kimi.md` → docs: log section 8.1 (critic prompt + agent)
 
 ---
