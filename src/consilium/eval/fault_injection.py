@@ -1,9 +1,17 @@
 """Seeded fault injection for verifier/critic evaluation (AGENTS.md §13.4).
 
 Takes known-good drafts and applies deterministic mutations, one fault class
-at a time, then measures which layer catches them. Phase 7 wires the
-**deterministic layer only** (``verify_draft``); Phase 8 adds the LLM critic
-and the combined layer-by-layer report.
+at a time, then measures which layer catches them. Phase 7 wired the
+**deterministic layer only** (``verify_draft``); Phase 8 (Section 8.4) adds
+the layer-by-layer report: deterministic only / LLM critic only / combined in
+production order (deterministic FIRST, critic only on a clean pass, §13.3).
+
+Offline rule (§20): no real LLM is called here. The "LLM critic" layer is a
+``ScriptedCritic`` — an honest stand-in that rejects exactly the seeded
+entailment fabrication the deterministic layer cannot see. The layered
+report therefore measures the WIRING (order, merge, complementarity), not
+real model recall; real critic recall is the ``live/`` suite's job and is
+never claimed from these numbers (I-11).
 
 Fault classes (§13.4): numeric gross + subtle, fabricated finding with/without
 ref, deleted mandatory finding, dose insertion, laterality flip, suppressed
@@ -13,13 +21,17 @@ entailed-looking claim with a valid ref is the LLM critic's job, and the
 report records that honestly instead of pretending the deterministic layer
 sees it.
 
-The corpus is synthetic and versioned in code. The recall report is stored as
-committed JSON (``tests/fixtures/fault_injection_deterministic_v1.json``) and
-drift-checked by ``tests/unit/test_verifier.py`` (I-11: measured numbers only).
+The corpus is synthetic and versioned in code. Reports are stored as
+committed JSON (``tests/fixtures/fault_injection_deterministic_v1.json`` and
+``fault_injection_layers_v1.json``) and drift-checked by unit tests (I-11:
+measured numbers only). Recall figures carry Wilson 95% score intervals —
+with the v1 corpus (N=1 per class) those intervals are wide by design and
+the report says so.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 from dataclasses import dataclass
 from enum import StrEnum
@@ -36,7 +48,7 @@ from consilium.schemas.agents import (
     Recommendation,
     SubReport,
 )
-from consilium.schemas.audit import Issue
+from consilium.schemas.audit import CriticVerdict, Issue
 from consilium.schemas.context import GlobalContext
 from consilium.schemas.enums import (
     ClaimKind,
@@ -63,6 +75,13 @@ REPORT_PATH = (
     / "tests"
     / "fixtures"
     / "fault_injection_deterministic_v1.json"
+)
+
+LAYERS_REPORT_PATH = (
+    Path(__file__).resolve().parents[3]
+    / "tests"
+    / "fixtures"
+    / "fault_injection_layers_v1.json"
 )
 
 
@@ -392,17 +411,180 @@ def evaluate_deterministic(
 
 
 def main() -> None:
-    """Regenerate the committed recall report (deterministic layer, v1 corpus)."""
+    """Regenerate the committed recall reports (deterministic + layered, v1)."""
     repo = Path(__file__).resolve().parents[3]
-    report = evaluate_deterministic(
-        known_good_corpus(),
-        load_thresholds(repo / "configs" / "thresholds.yaml"),
-        load_routing_config(repo / "configs" / "routing.yaml"),
-    )
+    thresholds = load_thresholds(repo / "configs" / "thresholds.yaml")
+    routing = load_routing_config(repo / "configs" / "routing.yaml")
+    corpus = known_good_corpus()
+    report = evaluate_deterministic(corpus, thresholds, routing)
     REPORT_PATH.write_text(
         json.dumps(report.to_dict(), indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
     print(f"wrote {REPORT_PATH}")
+    layered = asyncio.run(evaluate_layers(corpus, thresholds, routing))
+    LAYERS_REPORT_PATH.write_text(
+        json.dumps(layered, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    print(f"wrote {LAYERS_REPORT_PATH}")
+
+
+class EvalLayer(StrEnum):
+    """The three §13.4 configurations, in production order for ``COMBINED``."""
+
+    DETERMINISTIC = "deterministic"
+    LLM_CRITIC = "llm_critic"
+    COMBINED = "combined"
+
+
+class ScriptedCritic:
+    """Offline stand-in for the LLM critic (§20: no real LLM in tests/eval).
+
+    Scripted policy: reject exactly the seeded entailment fabrication
+    (``fabricated_with_ref`` — a valid-ref claim the deterministic layer
+    provably cannot see) and approve everything else. This measures the
+    layer WIRING (order, merge, complementarity), never real model recall;
+    the report labels it ``scripted_stand_in`` (I-11).
+    """
+
+    async def __call__(
+        self, draft: DirectorDraft, global_ctx: GlobalContext, round_: int
+    ) -> CriticVerdict:
+        for claim in draft.claims:
+            if "inferior notch" in claim.text.lower():
+                return CriticVerdict(
+                    approved=False,
+                    issues=(
+                        Issue(
+                            type=IssueType.UNSUPPORTED,
+                            claim_id=claim.id,
+                            detail="claim is not entailed by the cited fact (scripted)",
+                            evidence=claim.evidence_refs,
+                            raised_by="llm_critic",
+                        ),
+                    ),
+                    round=round_,
+                )
+        return CriticVerdict(approved=True, round=round_)
+
+
+async def _audit_once(
+    draft: DirectorDraft,
+    entry: CorpusEntry,
+    thresholds: Thresholds,
+    routing: RoutingConfig,
+    layer: EvalLayer,
+    critic: ScriptedCritic,
+) -> tuple[bool, tuple[Issue, ...]]:
+    """One detection round (no revision): rejected ⇔ the layer flags it.
+
+    ``COMBINED`` uses production semantics (§13.3): ANY deterministic issue
+    rejects and the critic runs only on a clean deterministic pass. The
+    standalone ``DETERMINISTIC`` layer additionally requires the EXPECTED
+    issue type per class (stricter — it measures check precision, not just
+    rejection), applied by the caller via ``expected``.
+    """
+    det_issues: tuple[Issue, ...] = ()
+    if layer in (EvalLayer.DETERMINISTIC, EvalLayer.COMBINED):
+        det_issues = verify_draft(
+            draft, entry.global_ctx, entry.sub_reports, thresholds, routing
+        )
+        if det_issues:
+            return True, det_issues
+    if layer in (EvalLayer.LLM_CRITIC, EvalLayer.COMBINED):
+        verdict = await critic(draft, entry.global_ctx, 1)
+        return (not verdict.approved), verdict.issues
+    return False, ()
+
+
+def _wilson_interval(caught: int, total: int, z: float = 1.96) -> tuple[float, float]:
+    """Wilson 95% score interval for a binomial proportion."""
+    if total == 0:
+        return (0.0, 0.0)
+    p = caught / total
+    denom = 1 + z * z / total
+    centre = (p + z * z / (2 * total)) / denom
+    margin = (z / denom) * ((p * (1 - p) / total + z * z / (4 * total * total)) ** 0.5)
+    return (max(0.0, centre - margin), min(1.0, centre + margin))
+
+
+def _class_row(caught: int, total: int) -> dict[str, object]:
+    lo, hi = _wilson_interval(caught, total)
+    return {
+        "caught": caught,
+        "total": total,
+        "recall": caught / total if total else 0.0,
+        "recall_ci95": [lo, hi],
+    }
+
+
+async def evaluate_layer(
+    corpus: tuple[CorpusEntry, ...],
+    thresholds: Thresholds,
+    routing: RoutingConfig,
+    layer: EvalLayer,
+    critic: ScriptedCritic | None = None,
+) -> dict[str, object]:
+    """Per-class recall + clean-draft false-rejection rate for one layer."""
+    critic = critic or ScriptedCritic()
+    clean_rejected = 0
+    for entry in corpus:
+        rejected, _ = await _audit_once(entry.draft, entry, thresholds, routing, layer, critic)
+        if rejected:
+            clean_rejected += 1
+    per_class: dict[str, object] = {}
+    for fault in FaultClass:
+        expected = EXPECTED_DETECTION[fault]
+        caught = 0
+        for entry in corpus:
+            mutated = apply_fault(entry, fault)
+            rejected, issues = await _audit_once(
+                mutated.draft, entry, thresholds, routing, layer, critic
+            )
+            if layer is EvalLayer.DETERMINISTIC:
+                # Check-precision semantics (matches the 7.3 fixture): caught
+                # only via the EXPECTED issue type; expected None = miss here.
+                if expected is not None and any(i.type is expected for i in issues):
+                    caught += 1
+            elif rejected:
+                caught += 1
+        per_class[fault.value] = {
+            "expected_deterministic_issue": expected.value if expected is not None else None,
+            **_class_row(caught, len(corpus)),
+        }
+    lo, hi = _wilson_interval(clean_rejected, len(corpus))
+    return {
+        "layer": layer.value,
+        "per_class": per_class,
+        "clean_total": len(corpus),
+        "clean_rejected": clean_rejected,
+        "clean_false_rejection_rate": clean_rejected / len(corpus) if corpus else 0.0,
+        "clean_false_rejection_ci95": [lo, hi],
+    }
+
+
+async def evaluate_layers(
+    corpus: tuple[CorpusEntry, ...], thresholds: Thresholds, routing: RoutingConfig
+) -> dict[str, object]:
+    """The full Section 8.4 report: all three configurations, one run."""
+    critic = ScriptedCritic()
+    layers = {
+        layer.value: await evaluate_layer(corpus, thresholds, routing, layer, critic)
+        for layer in EvalLayer
+    }
+    return {
+        "run_id": "fault-injection-layers-v1",
+        "corpus": [entry.name for entry in corpus],
+        "llm_critic": (
+            "scripted_stand_in — offline wiring measurement only (§20); real "
+            "critic recall is the live/ suite's job and is not claimed here (I-11)"
+        ),
+        "note": (
+            "N=1 per fault class in the v1 corpus; Wilson intervals are wide "
+            "by design. COMBINED runs deterministic FIRST, critic only on a "
+            "clean pass (§13.3)."
+        ),
+        "layers": layers,
+    }
 
 
 if __name__ == "__main__":
