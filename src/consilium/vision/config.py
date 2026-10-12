@@ -49,8 +49,33 @@ class PostInferenceQualityConfig(_ConfigModel):
 
 
 class NumericTolerances(_ConfigModel):
-    cdr: float = Field(gt=0)
-    probability: float = Field(gt=0)
+    default: float = Field(ge=0)
+    per_fact: dict[str, float] = {}
+
+    def tolerance_for(self, fact_id: str) -> float:
+        return self.per_fact.get(fact_id, self.default)
+
+
+class StrayNumberWhitelist(_ConfigModel):
+    """Regex classes whose numeric matches are NOT stray numbers (verifier P7)."""
+
+    date: str
+    follow_up_interval: str
+    age: str
+
+
+class DisagreementTopic(_ConfigModel):
+    """A configured polar topic for the DISAGREEMENT_SUPPRESSED check (§13.1).
+
+    If sub-reports from different roles mention the topic with opposing stance
+    markers, the draft must carry a visible ``Disagreement`` for it.
+    Conservative: flags for review, never auto-resolves.
+    """
+
+    topic: str = Field(min_length=1)
+    keywords: tuple[str, ...] = Field(min_length=1)
+    stance_a: tuple[str, ...] = Field(min_length=1)
+    stance_b: tuple[str, ...] = Field(min_length=1)
 
 
 class Thresholds(_ConfigModel):
@@ -59,6 +84,8 @@ class Thresholds(_ConfigModel):
     image_precheck: ImagePrecheckConfig
     post_inference_quality: PostInferenceQualityConfig
     numeric_tolerances: NumericTolerances
+    stray_number_whitelist: StrayNumberWhitelist
+    disagreement_topics: tuple[DisagreementTopic, ...] = ()
 
 
 class EndpointConfig(_ConfigModel):
