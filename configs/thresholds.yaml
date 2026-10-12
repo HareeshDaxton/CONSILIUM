@@ -25,6 +25,32 @@ post_inference_quality:
 
 numeric_tolerances:
   # Deterministic verifier (P7): |claim numeric_value - fact value| must be
-  # within these. Loosening them to pass a test is forbidden (AGENTS.md §26.4).
-  cdr: 0.02
-  probability: 0.01
+  # within tolerance for the claim's numeric_ref fact. Loosening these to pass
+  # a test is forbidden (AGENTS.md §26.4).
+  default: 0.01            # facts without an explicit per_fact entry
+  per_fact:
+    cad.cdr.vertical: 0.02
+    cad.cdr.area_based: 0.02
+    cad.p_glaucoma.calibrated: 0.01
+
+stray_number_whitelist:
+  # Deterministic verifier (P7): numerals matching one of these regex classes
+  # in prose are NOT stray numbers (SKILLS verifier-check pitfall: dates,
+  # follow-up intervals like "2–4 months", ages). Matched case-insensitively.
+  date: '\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}/\d{1,2}/\d{4}\b|\b(?:19|20)\d{2}\b'
+  follow_up_interval: '\b\d+\s?(?:–|—|-|to)\s?\d+\s?(?:days?|weeks?|months?|years?)\b|\b\d+\s?(?:days?|weeks?|months?|years?)\b'
+  age: '\b\d+\s?-?\s?(?:years?[- ]old|y/?o\b|years? of age)'
+
+disagreement_topics:
+  # Deterministic verifier (P7, §13.1): if sub-reports from different roles
+  # mention a topic with opposing stance markers, the draft MUST carry a
+  # Disagreement for it. Conservative — may flag for review, never resolves.
+  # CLINICAL-REVIEW: topic list and stance markers are a first proposal.
+  - topic: escalation urgency
+    keywords: ['referr', 'escalat', 'urgent', 'follow-up', 'review']
+    stance_a: ['urgent', 'prompt', 'immediate', 'expedited', 'as soon as']
+    stance_b: ['routine', 'monitor', 'non-urgent', 'watchful', 'annual', 'defer']
+  - topic: cdr interpretation
+    keywords: ['cdr', 'cup-to-disc', 'cup/disc', 'cupping']
+    stance_a: ['suspicious', 'enlarged', 'abnormal', 'concerning', 'elevated']
+    stance_b: ['normal', 'physiological', 'unremarkable', 'within normal']
