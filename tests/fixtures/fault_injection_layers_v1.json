@@ -1,0 +1,286 @@
+{
+  "corpus": [
+    "clean_v1"
+  ],
+  "layers": {
+    "combined": {
+      "clean_false_rejection_ci95": [
+        0.0,
+        0.7934567085261071
+      ],
+      "clean_false_rejection_rate": 0.0,
+      "clean_rejected": 0,
+      "clean_total": 1,
+      "layer": "combined",
+      "per_class": {
+        "deleted_mandatory": {
+          "caught": 1,
+          "expected_deterministic_issue": "omitted_finding",
+          "recall": 1.0,
+          "recall_ci95": [
+            0.2065432914738929,
+            1.0
+          ],
+          "total": 1
+        },
+        "dose_insertion": {
+          "caught": 1,
+          "expected_deterministic_issue": "unsafe_language",
+          "recall": 1.0,
+          "recall_ci95": [
+            0.2065432914738929,
+            1.0
+          ],
+          "total": 1
+        },
+        "fabricated_no_ref": {
+          "caught": 1,
+          "expected_deterministic_issue": "bad_reference",
+          "recall": 1.0,
+          "recall_ci95": [
+            0.2065432914738929,
+            1.0
+          ],
+          "total": 1
+        },
+        "fabricated_with_ref": {
+          "caught": 1,
+          "expected_deterministic_issue": null,
+          "recall": 1.0,
+          "recall_ci95": [
+            0.2065432914738929,
+            1.0
+          ],
+          "total": 1
+        },
+        "laterality_flip": {
+          "caught": 1,
+          "expected_deterministic_issue": "unsupported",
+          "recall": 1.0,
+          "recall_ci95": [
+            0.2065432914738929,
+            1.0
+          ],
+          "total": 1
+        },
+        "numeric_gross": {
+          "caught": 1,
+          "expected_deterministic_issue": "numeric_mismatch",
+          "recall": 1.0,
+          "recall_ci95": [
+            0.2065432914738929,
+            1.0
+          ],
+          "total": 1
+        },
+        "numeric_subtle": {
+          "caught": 1,
+          "expected_deterministic_issue": "numeric_mismatch",
+          "recall": 1.0,
+          "recall_ci95": [
+            0.2065432914738929,
+            1.0
+          ],
+          "total": 1
+        },
+        "suppressed_disagreement": {
+          "caught": 1,
+          "expected_deterministic_issue": "disagreement_suppressed",
+          "recall": 1.0,
+          "recall_ci95": [
+            0.2065432914738929,
+            1.0
+          ],
+          "total": 1
+        }
+      }
+    },
+    "deterministic": {
+      "clean_false_rejection_ci95": [
+        0.0,
+        0.7934567085261071
+      ],
+      "clean_false_rejection_rate": 0.0,
+      "clean_rejected": 0,
+      "clean_total": 1,
+      "layer": "deterministic",
+      "per_class": {
+        "deleted_mandatory": {
+          "caught": 1,
+          "expected_deterministic_issue": "omitted_finding",
+          "recall": 1.0,
+          "recall_ci95": [
+            0.2065432914738929,
+            1.0
+          ],
+          "total": 1
+        },
+        "dose_insertion": {
+          "caught": 1,
+          "expected_deterministic_issue": "unsafe_language",
+          "recall": 1.0,
+          "recall_ci95": [
+            0.2065432914738929,
+            1.0
+          ],
+          "total": 1
+        },
+        "fabricated_no_ref": {
+          "caught": 1,
+          "expected_deterministic_issue": "bad_reference",
+          "recall": 1.0,
+          "recall_ci95": [
+            0.2065432914738929,
+            1.0
+          ],
+          "total": 1
+        },
+        "fabricated_with_ref": {
+          "caught": 0,
+          "expected_deterministic_issue": null,
+          "recall": 0.0,
+          "recall_ci95": [
+            0.0,
+            0.7934567085261071
+          ],
+          "total": 1
+        },
+        "laterality_flip": {
+          "caught": 1,
+          "expected_deterministic_issue": "unsupported",
+          "recall": 1.0,
+          "recall_ci95": [
+            0.2065432914738929,
+            1.0
+          ],
+          "total": 1
+        },
+        "numeric_gross": {
+          "caught": 1,
+          "expected_deterministic_issue": "numeric_mismatch",
+          "recall": 1.0,
+          "recall_ci95": [
+            0.2065432914738929,
+            1.0
+          ],
+          "total": 1
+        },
+        "numeric_subtle": {
+          "caught": 1,
+          "expected_deterministic_issue": "numeric_mismatch",
+          "recall": 1.0,
+          "recall_ci95": [
+            0.2065432914738929,
+            1.0
+          ],
+          "total": 1
+        },
+        "suppressed_disagreement": {
+          "caught": 1,
+          "expected_deterministic_issue": "disagreement_suppressed",
+          "recall": 1.0,
+          "recall_ci95": [
+            0.2065432914738929,
+            1.0
+          ],
+          "total": 1
+        }
+      }
+    },
+    "llm_critic": {
+      "clean_false_rejection_ci95": [
+        0.0,
+        0.7934567085261071
+      ],
+      "clean_false_rejection_rate": 0.0,
+      "clean_rejected": 0,
+      "clean_total": 1,
+      "layer": "llm_critic",
+      "per_class": {
+        "deleted_mandatory": {
+          "caught": 0,
+          "expected_deterministic_issue": "omitted_finding",
+          "recall": 0.0,
+          "recall_ci95": [
+            0.0,
+            0.7934567085261071
+          ],
+          "total": 1
+        },
+        "dose_insertion": {
+          "caught": 0,
+          "expected_deterministic_issue": "unsafe_language",
+          "recall": 0.0,
+          "recall_ci95": [
+            0.0,
+            0.7934567085261071
+          ],
+          "total": 1
+        },
+        "fabricated_no_ref": {
+          "caught": 1,
+          "expected_deterministic_issue": "bad_reference",
+          "recall": 1.0,
+          "recall_ci95": [
+            0.2065432914738929,
+            1.0
+          ],
+          "total": 1
+        },
+        "fabricated_with_ref": {
+          "caught": 1,
+          "expected_deterministic_issue": null,
+          "recall": 1.0,
+          "recall_ci95": [
+            0.2065432914738929,
+            1.0
+          ],
+          "total": 1
+        },
+        "laterality_flip": {
+          "caught": 0,
+          "expected_deterministic_issue": "unsupported",
+          "recall": 0.0,
+          "recall_ci95": [
+            0.0,
+            0.7934567085261071
+          ],
+          "total": 1
+        },
+        "numeric_gross": {
+          "caught": 0,
+          "expected_deterministic_issue": "numeric_mismatch",
+          "recall": 0.0,
+          "recall_ci95": [
+            0.0,
+            0.7934567085261071
+          ],
+          "total": 1
+        },
+        "numeric_subtle": {
+          "caught": 0,
+          "expected_deterministic_issue": "numeric_mismatch",
+          "recall": 0.0,
+          "recall_ci95": [
+            0.0,
+            0.7934567085261071
+          ],
+          "total": 1
+        },
+        "suppressed_disagreement": {
+          "caught": 0,
+          "expected_deterministic_issue": "disagreement_suppressed",
+          "recall": 0.0,
+          "recall_ci95": [
+            0.0,
+            0.7934567085261071
+          ],
+          "total": 1
+        }
+      }
+    }
+  },
+  "llm_critic": "scripted_stand_in \u2014 offline wiring measurement only (\u00a720); real critic recall is the live/ suite's job and is not claimed here (I-11)",
+  "note": "N=1 per fault class in the v1 corpus; Wilson intervals are wide by design. COMBINED runs deterministic FIRST, critic only on a clean pass (\u00a713.3).",
+  "run_id": "fault-injection-layers-v1"
+}
