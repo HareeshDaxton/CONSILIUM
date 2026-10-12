@@ -11,7 +11,7 @@ anything only the user can do (account registrations, dataset downloads, API
 keys into `.env`, tool installs, OS policy changes). If the list is empty,
 the section needed no manual work.
 
-Current position: **PHASE 5 COMPLETE (5.1–5.4); PHASE 6 COMPLETE through 6.3 (Director prompt v1, draft/revise agent, disagreement-preservation tests; full battery green, 418 tests). Next: Phase 7, Section 7.1 — deterministic verifier lexicon + tolerance config (awaiting go-ahead).**
+Current position: **PHASE 5 COMPLETE (5.1–5.4); PHASE 6 COMPLETE (6.1–6.3); PHASE 7 COMPLETE (7.1–7.3; verifier exactness proven on unit tests + fault corpus, per-fault-class deterministic recall stored at tests/fixtures/fault_injection_deterministic_v1.json). Next: Phase 8, Section 8.1 — LLM Critic prompt + agent.**
 
 ---
 
@@ -1907,5 +1907,261 @@ fakes.
 
 **Commit messages (6.3)**
 - `tests/unit/test_director.py` → test(agents): add curated disagreement-preservation cases and single-position smoothing rejection
+
+---
+
+## Phase 7 — Deterministic verifier
+
+Skill in force: `verifier-check` (SKILLS.md §7) for the whole phase;
+`critic-fault-injection` (§8) for 7.3.
+
+### Section 7.1 — Lexicon + tolerance config ✅ DONE
+
+**Goal (from implementation plan):** `verify/lexicon.py` (forbidden phrases,
+dose pattern `\d+\s?(mg|mcg|%)`, stage/severity rule — single source reused
+by the output rail in P10); `configs/thresholds.yaml` per-fact numeric
+tolerances + stray-number whitelist classes. Exit: lexicon unit tests incl.
+benign near-misses.
+
+**What was done — files created/changed**
+- `src/consilium/verify/lexicon.py` (NEW) — `LexiconCategory`
+  (DEFINITIVE_DIAGNOSIS / DOSE_OR_REGIMEN / STAGE_SEVERITY), frozen
+  `LexiconHit`, `scan_text()` returning position-ordered candidate hits.
+  Diagnosis phrases matched as case-insensitive substrings; dose regex has no
+  trailing `\b` after `%` (non-word char would never match); stage/severity
+  regex requires glaucoma/stage context so "moderate confidence" never hits.
+  `scan_text` is deliberately context-free — the note-support gate for
+  stage/severity (I-12) is the verifier's job (7.2), which owns the context.
+- `configs/thresholds.yaml` — `numeric_tolerances` restructured to
+  `default: 0.01` + `per_fact` map (`cad.cdr.vertical`/`cad.cdr.area_based`
+  0.02, `cad.p_glaucoma.calibrated` 0.01); new `stray_number_whitelist` regex
+  classes: `date`, `follow_up_interval` (covers "2–4 months" en-dash forms),
+  `age`.
+- `src/consilium/vision/config.py` — `NumericTolerances.tolerance_for()`
+  (per-fact → default), new `StrayNumberWhitelist` model on `Thresholds`.
+- `tests/unit/test_lexicon.py` (NEW) — 41 tests: positive per category,
+  benign near-misses ("2–4 months", "0.62", "moderate confidence",
+  "consistent with glaucoma suspicion"), dose units incl. "0.5%", stage
+  shapes (roman/arabic), ordering by position.
+- `tests/unit/test_vision_calibration.py` — config-loader assertions updated
+  to the new tolerance/whitelist shape.
+
+**Key decisions & reasons**
+- Tolerances are per-fact with a default, in config — never in code and never
+  loosened to pass a test (§26.4).
+- The lexicon is the ONLY place these patterns exist; P10's NeMo output rail
+  must import from here.
+
+**Verified (commands run)**
+- `uv run pytest tests/unit/test_lexicon.py tests/unit/test_vision_calibration.py -q`
+  → **48 passed**.
+
+**Deferred / not verified** — none (full battery ran green at 455 tests
+before the pause; re-run at 7.3 section end).
+
+**CLINICAL-REVIEW items**
+- The forbidden-phrase list and the stage/severity note-support rule encode
+  I-12; clinician co-author should review the phrase list before release.
+
+**MANUAL STEPS FOR THE HUMAN (7.1)**
+1. Review + commit the files listed below (messages provided).
+
+**Commit messages (7.1)**
+- `src/consilium/verify/lexicon.py` → feat(verify): add forbidden-language lexicon as single source for verifier and output rail (I-12)
+- `configs/thresholds.yaml` → feat(config): add per-fact numeric tolerances and stray-number whitelist classes for the deterministic verifier
+- `src/consilium/vision/config.py` → feat(vision): add tolerance_for lookup and StrayNumberWhitelist to thresholds config
+- `tests/unit/test_lexicon.py` → test(verify): cover lexicon positives, dose/stage shapes, and benign near-misses
+- `tests/unit/test_vision_calibration.py` → test(vision): assert per-fact tolerance lookup and whitelist config loading
+
+---
+
+### Section 7.2 — Check implementations ✅ DONE
+
+**Goal (from implementation plan):** `verify/deterministic.py` pure functions
+`(draft, global_ctx, cfg) -> list[Issue]`: check_references (BAD_REFERENCE),
+check_numerics (NUMERIC_MISMATCH, per-fact tolerance), check_stray_numbers
+(UNSUPPORTED), check_coverage (OMITTED_FINDING), check_language
+(UNSAFE_LANGUAGE), check_disagreement_preservation (DISAGREEMENT_SUPPRESSED,
+configured polar topics), check_role_scope (OUT_OF_SCOPE).
+Exit: each check a pure config-driven function.
+
+**What was done — files created/changed**
+- `src/consilium/verify/deterministic.py` (NEW) — all seven checks as pure
+  functions returning `Issue(raised_by="deterministic")`, plus `verify_draft`
+  running them in a fixed order (references → numerics → stray numbers →
+  coverage → language → disagreement → role scope). Details:
+  - references: claim evidence_refs + numeric_ref + recommendation
+    triggered_by must resolve against C_global.
+  - numerics: |claim − fact| within `tolerance_for(numeric_ref)`; unresolved
+    refs stay BAD_REFERENCE (no double-flag); non-numeric fact = mismatch.
+  - stray numbers: whitelist classes stripped first (date / follow-up
+    interval / age), remaining numerals must be attributable to a cited fact
+    value (per-fact tolerance) or a NUMERIC claim value (default tolerance);
+    impression is attributed against all cited refs + all numeric claims.
+  - coverage: `cad.laterality` / `cad.p_glaucoma.tier` / `cad.cdr.vertical`
+    must be cited by some claim; every `cad.caveat.*` and
+    `note.caveat.extraction` fact must be cited OR named in `limitations`
+    (token = last ID segment, underscores→spaces, case-insensitive).
+  - language: lexicon scan of impression + claims + recommendations;
+    STAGE_SEVERITY hits suppressed only when `note.prior_dx` /
+    `note.exam_findings` / `note.free_text` itself contains stage/severity
+    wording (I-12 note-support gate lives here, not in the lexicon).
+  - disagreement: per configured topic, opposing stance markers across
+    DIFFERENT roles with no draft Disagreement naming the topic → suppressed
+    (conservative, flags for review, never resolves).
+  - role scope: allowed sets derived by re-running the real `route()` on
+    C_global — the check can never drift from the routing policy (third
+    isolation enforcement).
+- `configs/thresholds.yaml` — `disagreement_topics` (escalation urgency,
+  CDR interpretation) with keywords + stance_a/stance_b marker lists,
+  `# CLINICAL-REVIEW:` marked.
+- `src/consilium/vision/config.py` — `DisagreementTopic` model +
+  `Thresholds.disagreement_topics` (default empty tuple).
+
+**Key decisions & reasons**
+- The check signature extends the plan's `(draft, global_ctx, cfg)`:
+  disagreement preservation needs the sub-reports (§13.1 says "if two
+  sub-reports hold polar positions…") and role scope needs the routing
+  config; both are injected into `verify_draft`, keeping each check pure.
+- Stage/severity gating is split: lexicon emits context-free candidate hits,
+  the verifier applies the note-support rule — the lexicon stays reusable by
+  the P10 output rail, which has no GlobalContext.
+
+**Verified (commands run)**
+- `uv run ruff check` + `ruff format` → clean (2 E501 + 1 blank-line fix).
+- `uv run python -m mypy` → no issues (deterministic.py + config.py).
+- `uv run lint-imports --config importlinter.ini` → 7 kept, 0 broken.
+- Scoped regression: lexicon + calibration + router tests → **55 passed**.
+
+**Deferred / not verified**
+- Per-check positive/negative/boundary tests + seeded-fault recall are
+  Section 7.3 (by plan); behavior not yet test-verified.
+
+**CLINICAL-REVIEW items**
+- `disagreement_topics` topic list and stance markers (first proposal).
+- Coverage rule treats a caveat as covered when cited by a claim OR named in
+  a limitation — clinician co-author may want limitations-only.
+
+**MANUAL STEPS FOR THE HUMAN (7.2)**
+1. Review + commit the files listed below (messages provided).
+
+**Commit messages (7.2)**
+- `src/consilium/verify/deterministic.py` → feat(verify): implement the seven deterministic verifier checks behind verify_draft (§13.1)
+- `configs/thresholds.yaml` → feat(config): add configured polar disagreement topics for the DISAGREEMENT_SUPPRESSED check
+- `src/consilium/vision/config.py` → feat(vision): add DisagreementTopic model to thresholds config
+
+---
+
+### Section 7.3 — Verifier tests + seeded-fault recall ✅ DONE
+
+**Goal (from implementation plan):** `tests/unit/test_verifier.py` —
+positive/negative/boundary per check (exactly-at-tolerance case mandatory).
+First pass of `eval/fault_injection.py` mutations (numeric gross+subtle,
+fabricated finding with/without ref, deleted mandatory finding, dose/diagnosis
+insertion, laterality flip, suppressed disagreement) measured against the
+deterministic layer only.
+Exit: per-fault-class recall table for the deterministic layer stored;
+clean-draft false-rejection rate measured.
+PHASE 7 EXIT: verifier proven exact on unit tests and fault corpus.
+
+**What was done — files created/changed**
+- `tests/unit/test_verifier.py` (NEW, 52 tests) — per-check coverage:
+  - `check_references`: clean pass; unknown evidence_ref / numeric_ref /
+    recommendation `triggered_by` → BAD_REFERENCE.
+  - `check_numerics`: clean pass; gross + subtle seeded faults caught;
+    **mandatory boundary cases**: exactly-at-tolerance (0.5 ± 0.02, both
+    sides) PASS, just-beyond (±1e-6 past tolerance) FAIL; numeric_ref pointing
+    at a non-numeric fact → NUMERIC_MISMATCH; unresolved numeric_ref stays
+    BAD_REFERENCE only (no double-flag).
+  - `check_stray_numbers`: clean pass; stray numeral in impression →
+    UNSUPPORTED; whitelisted date/interval/age prose passes; numerals
+    attributable to a cited fact (within per-fact tolerance) or to a NUMERIC
+    claim pass.
+  - `check_coverage`: clean pass; each mandatory fact (laterality, tier,
+    vertical CDR) uncited → OMITTED_FINDING; caveat fact uncovered →
+    OMITTED_FINDING; caveat covered by a limitation OR by a citing claim
+    passes.
+  - `check_language`: clean pass; dose insertion + definitive diagnosis +
+    stage/severity without note support → UNSAFE_LANGUAGE; stage/severity
+    WITH note support (I-12 gate) passes.
+  - `check_disagreement_preservation`: clean pass; seeded suppression caught;
+    neutral sub-reports + empty disagreements do NOT flag; a Disagreement
+    that never names the polar topic does not count as coverage.
+  - `check_laterality_consistency`: clean pass; seeded flip caught; UNKNOWN
+    laterality exempt; claims not citing `cad.laterality` ignored.
+  - `check_role_scope`: clean pass; pharmacist citing `cad.cdr.vertical` →
+    OUT_OF_SCOPE; pharmacist citing an allowlisted fact passes; multi-role
+    claim flags only the out-of-scope role.
+  - `verify_draft` on every clean corpus entry returns zero issues
+    (false-rejection rate 0); `fabricated_with_ref` confirmed as the
+    documented deterministic-layer miss.
+  - Drift check: `evaluate_deterministic` recomputed and asserted equal to
+    the committed JSON fixture, plus recall==1.0 for every class the layer
+    must catch and clean false-rejection rate == 0.
+- `src/consilium/eval/fault_injection.py` (NEW, §13.4) — versioned synthetic
+  known-good corpus (draft + C_global + sub-reports via the real context
+  builder), eight deterministic `FaultClass` mutations with the IssueType the
+  deterministic layer is EXPECTED to catch each with (`fabricated_with_ref`
+  expects `None` — entailment faults are the LLM critic's job, recorded
+  honestly), `evaluate_deterministic` recall measurement, and `main()`
+  writing the committed JSON report. Reformatted by ruff (format-only) in
+  this section.
+- `tests/fixtures/fault_injection_deterministic_v1.json` (NEW) — measured
+  per-fault-class recall + clean false-rejection rate, generated by
+  `uv run python -m consilium.eval.fault_injection`.
+- `tests/fixtures/PROVENANCE.md` — provenance entry for the new fixture.
+
+**Key decisions & reasons**
+- Tests reuse the fault-injection corpus builders (private helpers imported
+  deliberately) so the unit tests and the stored recall report exercise the
+  exact same drafts — no parallel fixtures that can diverge.
+- The recall report is committed JSON and drift-checked by a test (I-11):
+  stored numbers cannot silently drift from the code; a deliberate change
+  requires regenerating the fixture and committing the diff.
+- The representation-noise guard (`_EPS = 1e-12` in deterministic.py) is what
+  makes "exactly at tolerance" pass despite 0.52 − 0.5 == 0.020000000000000004
+  in binary floating point; the boundary tests pin this behavior.
+
+**Measured seeded-fault recall (deterministic layer, v1 corpus, N=1 per class)**
+
+| Fault class | Expected issue type | Recall |
+|---|---|---|
+| numeric_gross | numeric_mismatch | 1.0 |
+| numeric_subtle (0.5 → 0.53, tol 0.02) | numeric_mismatch | 1.0 |
+| fabricated_with_ref | none (expected miss — LLM critic, P8) | 0.0 (by design) |
+| fabricated_no_ref | bad_reference | 1.0 |
+| deleted_mandatory | omitted_finding | 1.0 |
+| dose_insertion | unsafe_language | 1.0 |
+| laterality_flip | unsupported | 1.0 |
+| suppressed_disagreement | disagreement_suppressed | 1.0 |
+
+Clean-draft false-rejection rate: **0.0** (0/1 rejected).
+
+**Verified (commands run)**
+- `uv run python -m consilium.eval.fault_injection` → wrote the JSON fixture.
+- `uv run ruff check` + `uv run ruff format --check` on changed files → clean.
+- `uv run python -m mypy` → no issues (62 source files, strict).
+- `uv run pytest tests/unit/test_verifier.py -q` → **52 passed**.
+
+**Deferred / not verified**
+- LLM-critic layer and combined layer-by-layer fault-injection report are
+  Phase 8 (§13.4); this section measured the deterministic layer only.
+- Corpus is N=1 per fault class (v1 by design); widening it (more base
+  drafts, seeded variants) is natural hardening for P8/P13.
+- Full test battery not re-run in this section (scoped verification only,
+  per task); run `uv run pytest -m "not live"` before committing if desired.
+
+**CLINICAL-REVIEW items**
+- None new in this section (carried over: 7.1 lexicon phrase list; 7.2
+  disagreement topics/stance markers and the caveat-coverage rule).
+
+**MANUAL STEPS FOR THE HUMAN (7.3)**
+1. Review + commit the files listed below (messages provided).
+
+**Commit messages (7.3)**
+- `tests/unit/test_verifier.py` → test(verify): cover all seven deterministic checks incl. exactly-at-tolerance boundary
+- `src/consilium/eval/fault_injection.py` → feat(eval): add seeded fault-injection corpus and deterministic-layer recall measurement (§13.4)
+- `tests/fixtures/fault_injection_deterministic_v1.json` + `tests/fixtures/PROVENANCE.md` → test(eval): store measured deterministic fault-injection recall as a drift-checked fixture (I-11)
+- `Kimi.md` → docs: log section 7.3 and mark phase 7 complete (7.1–7.3)
 
 ---
