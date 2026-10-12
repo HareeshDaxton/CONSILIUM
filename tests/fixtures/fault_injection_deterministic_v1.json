@@ -1,0 +1,56 @@
+{
+  "clean_false_rejection_rate": 0.0,
+  "clean_rejected": 0,
+  "clean_total": 1,
+  "layer": "deterministic",
+  "per_class": {
+    "deleted_mandatory": {
+      "caught": 1,
+      "expected_issue": "omitted_finding",
+      "recall": 1.0,
+      "total": 1
+    },
+    "dose_insertion": {
+      "caught": 1,
+      "expected_issue": "unsafe_language",
+      "recall": 1.0,
+      "total": 1
+    },
+    "fabricated_no_ref": {
+      "caught": 1,
+      "expected_issue": "bad_reference",
+      "recall": 1.0,
+      "total": 1
+    },
+    "fabricated_with_ref": {
+      "caught": 0,
+      "expected_issue": null,
+      "recall": 0.0,
+      "total": 1
+    },
+    "laterality_flip": {
+      "caught": 1,
+      "expected_issue": "unsupported",
+      "recall": 1.0,
+      "total": 1
+    },
+    "numeric_gross": {
+      "caught": 1,
+      "expected_issue": "numeric_mismatch",
+      "recall": 1.0,
+      "total": 1
+    },
+    "numeric_subtle": {
+      "caught": 1,
+      "expected_issue": "numeric_mismatch",
+      "recall": 1.0,
+      "total": 1
+    },
+    "suppressed_disagreement": {
+      "caught": 1,
+      "expected_issue": "disagreement_suppressed",
+      "recall": 1.0,
+      "total": 1
+    }
+  }
+}
