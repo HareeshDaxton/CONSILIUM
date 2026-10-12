@@ -54,7 +54,8 @@ class TestConfigLoaders:
         assert tiers.tier_for(0.5) == "intermediate"
         assert tiers.tier_for(0.9) == "high"
         assert tiers.tier_for(0.70) == "high"  # boundary inclusive
-        assert cfg.numeric_tolerances.cdr > 0
+        assert cfg.numeric_tolerances.tolerance_for("cad.cdr.vertical") > 0
+        assert cfg.stray_number_whitelist.date
 
     def test_models_yaml_parses(self) -> None:
         cfg = load_models_config()
