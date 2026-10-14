@@ -123,6 +123,8 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S106", "S105", "RUF001", "RUF002"]  # RUF*: adversarial unicode test data is intentional
+"tests/integration/test_persistence.py" = ["S608"]  # DDL f-strings interpolate fixed test role names only
+"src/consilium/persistence/alembic/versions/**" = ["S608"]  # migration DDL interpolates server-side constants only
 "scripts/**" = ["T201", "RUF001", "RUF002"]  # RUF*: full-width/zero-width adversarial fixture strings are intentional
 "training/**" = ["T201", "S311"]  # CLI prints; seeded non-crypto RNG is the point
 
