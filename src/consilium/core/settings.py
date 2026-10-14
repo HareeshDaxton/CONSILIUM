@@ -41,6 +41,10 @@ class Settings(BaseSettings):
     # ----- Persistence / storage -----
     database_url: str  # required — no default
     object_store_uri: str = "file://./data/objects"
+    # 32 bytes (or base64 of 32 bytes) for AES-256-GCM column encryption
+    # (clinical_notes.raw_redacted_text_enc). None only where the column is
+    # never written/read (pure unit tests); serving must set it (I-6).
+    field_encryption_key: SecretStr | None = None
 
     # ----- Vision (remote endpoint — I-13/I-14) -----
     vision_client_mode: Literal["http", "fake"] = "fake"
