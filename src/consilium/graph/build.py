@@ -38,6 +38,8 @@ __all__ = ["GraphRunner", "NodeHook"]
 NodeHook = Callable[[str, CaseState], None]
 
 _RECURSION_LIMIT = 64  # ≥ linear chain + 2·CRITIC_MAX_ROUNDS + rails, with margin
+# node name → rail name for the guardrail.triggered audit event (§14)
+_RAIL_NODES: dict[str, str] = {"input_rail": "input", "output_rail": "output"}
 
 
 class _GState(TypedDict):
@@ -209,6 +211,19 @@ class GraphRunner:
             event=f"node.{name}",
             detail=detail,
         )
+        if out.failure is not None and name in _RAIL_NODES:
+            # §14: guardrail failures are audit events with rail name + reason,
+            # never swallowed. Rule NAMES only (failure.reason), never content.
+            await tx.audit(
+                case_id=uuid.UUID(out.case_id),
+                event="guardrail.triggered",
+                actor="guardrails",
+                detail={
+                    "rail": _RAIL_NODES[name],
+                    "reason": out.failure.type,
+                    "rule": out.failure.reason,
+                },
+            )
 
     async def _write_domain_rows(
         self, tx: RepoTx, case_id: uuid.UUID, name: str, prev: CaseState, out: CaseState
