@@ -9,14 +9,16 @@
 # full-width homoglyphs and invisible-character tricks cannot smuggle
 # instruction-like content past the patterns.
 #
-# NeMo Guardrails (model-based injection detection) layers ON TOP of this in
-# P10 — these deterministic checks stay: they are cheap, offline-testable,
-# and exact. Division of responsibility per AGENTS.md §14.
+# Canonical consumer: src/consilium/guardrails/input_checks.py (P10.1).
+# NeMo Guardrails (model-based injection detection, guardrails/nemo_wiring.py)
+# layers ON TOP of this and only ever sees the REDACTED note — these
+# deterministic checks stay: cheap, offline-testable, exact. Division of
+# responsibility per AGENTS.md §14.
 #
 # Every pattern needs positive + negative tests (tests/unit/test_input_rail.py)
 # and adversarial coverage (tests/adversarial/).
 
-version: 1
+version: 2
 limits:
   # CLINICAL-REVIEW: 4000 chars matches ClinicalNote.free_text max_length —
   # longer notes are rejected, never silently truncated (no quiet data loss
@@ -25,10 +27,31 @@ limits:
   # CLINICAL-REVIEW: fraction of control characters (category Cc, excluding
   # \n \t \r) tolerated before the note is treated as corrupt/adversarial.
   max_control_char_fraction: 0.01
+charset:
+  # Code points that never belong in a clinical note. Co = private use,
+  # Cs = surrogates, Cn = unassigned. Bidi embedding/override/isolate controls
+  # (U+202A–202E, U+2066–2069) reorder displayed text (Trojan-Source) and are
+  # refused outright. Zero-width chars are NOT listed: copy-paste from EHRs
+  # carries them; they are stripped for pattern matching instead.
+  disallowed_categories: [Co, Cs, Cn]
+  disallowed_codepoints: ["202A", "202B", "202C", "202D", "202E", "2066", "2067", "2068", "2069"]
+phi:
+  # Shared PHI patterns: configs/guardrails/policies/phi_patterns.yaml (the
+  # SAME file de-identification uses — single source). "redact": the rail
+  # records which pattern NAMES fired and de-identification redacts them next;
+  # "block": a note containing any PHI pattern goes to NEEDS_ATTENTION.
+  # CLINICAL-REVIEW: V1 default is redact (labelled identifiers are common in
+  # referral notes; blocking would reject most real notes).
+  on_match: redact
 patterns:
   - name: instruction_override
     # "ignore all previous instructions", "disregard the above rules"
     pattern: '\b(ignore|disregard|forget|override)\b.{0,50}\b(instructions?|rules?|guidelines?|directives?)\b'
+  - name: instruction_override_multilingual
+    # Spanish / French / German / Portuguese / Italian forms of "ignore the
+    # previous instructions/rules". The model-based NeMo rail is the broader
+    # multilingual layer; these are the cheap exact cases.
+    pattern: '\b(ignora|ignore[zr]?|ignoriere|olvida|oublie[zr]?|vergiss|esque[cç]a|dimentica)\b.{0,50}\b(instrucciones|instru[cç][oõ]es|istruzioni|anweisungen|instructions|reglas|r[eè]gles|regeln|regras|regole)\b'
   - name: prompt_extraction
     # "reveal your system prompt", "print your instructions"
     pattern: '\b(reveal|show|print|repeat|leak)\b.{0,50}\b(system prompt|your instructions|your prompt|your rules)\b'
