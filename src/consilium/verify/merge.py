@@ -48,9 +48,7 @@ def merge_verdicts(
     """
     critic_issues = critic_verdict.issues if critic_verdict is not None else ()
     issues = (*deterministic_issues, *critic_issues)
-    approved = (
-        not deterministic_issues and critic_verdict is not None and critic_verdict.approved
-    )
+    approved = not deterministic_issues and critic_verdict is not None and critic_verdict.approved
     # Rejection without any issue object is unreachable: verify_draft returns
     # its reasons, a rejecting CriticVerdict must carry issues (schema), and
     # the loop passes critic_verdict=None only when det_issues is non-empty.
