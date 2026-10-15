@@ -36,9 +36,7 @@ def routing() -> RoutingConfig:
 def report(thresholds: Thresholds, routing: RoutingConfig) -> dict[str, object]:
     import asyncio
 
-    return asyncio.run(
-        fi.evaluate_layers(fi.known_good_corpus(), thresholds, routing)
-    )
+    return asyncio.run(fi.evaluate_layers(fi.known_good_corpus(), thresholds, routing))
 
 
 def _layer(report: dict[str, object], name: str) -> dict[str, object]:
