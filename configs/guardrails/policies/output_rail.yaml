@@ -1,0 +1,20 @@
+# Output rail on the DirectorDraft before clinician view (AGENTS.md §14; I-12).
+#
+# Consumed by src/consilium/guardrails/output_checks.py. The forbidden-language
+# and dose patterns are NOT here: they live ONLY in src/consilium/verify/lexicon.py
+# (single source, shared with the deterministic verifier). PHI-echo patterns
+# are the shared configs/guardrails/policies/phi_patterns.yaml.
+#
+# A trigger sends the case to NEEDS_ATTENTION with a guardrail.triggered audit
+# event carrying the rule NAME only.
+
+version: 1
+disclaimer:
+  # CLINICAL-REVIEW: at least one `limitations` entry must match one of these
+  # (case-insensitive regex, on normalized text) — the screening-support
+  # disclaimer the Director prompt mandates ("Screening support only; not a
+  # diagnosis.").
+  # Separator: optional space / ASCII hyphen / U+2010 / U+2011 (NFKC leaves the
+  # Unicode hyphens in place, so they are listed explicitly).
+  any_of:
+    - 'screening[\s‐‑-]?support'
