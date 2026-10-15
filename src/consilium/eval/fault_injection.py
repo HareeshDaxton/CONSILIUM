@@ -78,10 +78,7 @@ REPORT_PATH = (
 )
 
 LAYERS_REPORT_PATH = (
-    Path(__file__).resolve().parents[3]
-    / "tests"
-    / "fixtures"
-    / "fault_injection_layers_v1.json"
+    Path(__file__).resolve().parents[3] / "tests" / "fixtures" / "fault_injection_layers_v1.json"
 )
 
 
@@ -485,9 +482,7 @@ async def _audit_once(
     """
     det_issues: tuple[Issue, ...] = ()
     if layer in (EvalLayer.DETERMINISTIC, EvalLayer.COMBINED):
-        det_issues = verify_draft(
-            draft, entry.global_ctx, entry.sub_reports, thresholds, routing
-        )
+        det_issues = verify_draft(draft, entry.global_ctx, entry.sub_reports, thresholds, routing)
         if det_issues:
             return True, det_issues
     if layer in (EvalLayer.LLM_CRITIC, EvalLayer.COMBINED):
