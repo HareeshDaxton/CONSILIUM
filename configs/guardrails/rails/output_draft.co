@@ -1,0 +1,12 @@
+# Output rail on the DirectorDraft text (AGENTS.md §14; Colang 1.0).
+# Model-needed policy check ONLY — forbidden-language/dose/PHI-echo/disclaimer
+# checks are deterministic (guardrails/output_checks.py) and run first.
+
+define bot refuse draft
+  "RAIL_BLOCKED:output_draft_policy"
+
+define flow output draft rail
+  $allowed = execute self_check_output
+  if not $allowed
+    bot refuse draft
+    stop
