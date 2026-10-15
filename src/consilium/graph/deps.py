@@ -12,7 +12,6 @@ asserts the draft exists. The node still exists so the state machine matches
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
@@ -23,13 +22,14 @@ from consilium.agents.director import Director
 from consilium.agents.specialists import build_specialists
 from consilium.context.router import RoutingConfig, load_routing_config
 from consilium.core.settings import Settings
+from consilium.guardrails.input_checks import InputRailConfig, load_input_rail
+from consilium.guardrails.nemo_wiring import FakeRailEngine, GuardedRails
+from consilium.guardrails.output_checks import OutputRailConfig, load_output_rail
 from consilium.intake.deidentify import PhiPolicy, load_phi_patterns
 from consilium.intake.extractor import load_extractor_prompt
-from consilium.intake.input_rail import InputRailConfig, load_input_rail
 from consilium.llm.budget import TokenBudget
 from consilium.llm.client import LLMClient
 from consilium.llm.prompt_loader import PromptLoader
-from consilium.schemas.agents import DirectorDraft
 from consilium.schemas.enums import Role
 from consilium.vision.client import VisionClient
 from consilium.vision.config import (
@@ -85,12 +85,9 @@ class Deps:
     specialists: dict[Role, BaseSpecialist]
     director: Director
     critic: Critic
-    output_rail: Callable[[DirectorDraft], None]
+    output_policy: OutputRailConfig  # deterministic output checks (§14)
+    rails: GuardedRails  # model-based (NeMo) layer; deterministic checks run first
     budget: TokenBudget | None = None
-
-
-def _noop_output_rail(draft: DirectorDraft) -> None:
-    """Phase 10 seam: real output checks land in guardrails/output_checks."""
 
 
 def build_fake_deps(
@@ -99,7 +96,7 @@ def build_fake_deps(
     llm: LLMClient,
     vision: VisionClient,
     image_store: ImageStore | None = None,
-    output_rail: Callable[[DirectorDraft], None] | None = None,
+    rails: GuardedRails | None = None,
 ) -> Deps:
     """Fully offline deps: fake clients, committed configs, no network (§20)."""
     loader = PromptLoader()
@@ -129,7 +126,9 @@ def build_fake_deps(
             temperature=settings.llm_temperature_critic,
             fixture="default",
         ),
-        output_rail=output_rail or _noop_output_rail,
+        output_policy=load_output_rail(),
+        # offline: deterministic fake engine that never triggers unless told to
+        rails=rails or GuardedRails(FakeRailEngine()),
     )
 
 
@@ -138,6 +137,8 @@ def build_prod_deps(settings: Settings) -> Deps:
     from consilium.llm.client_openai import OpenAILLMClient
     from consilium.vision.client_http import HttpVisionClient
 
+    # P11: rails=GuardedRails(NemoRailEngine()) — needs the optional
+    # nemoguardrails dependency (Kimi.md 10.2 manual steps).
     raise NotImplementedError(
         "prod deps land with the API worker (P11): "
         f"{OpenAILLMClient.__name__} + {HttpVisionClient.__name__} wiring"
