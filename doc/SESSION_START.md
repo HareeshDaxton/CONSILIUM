@@ -11,9 +11,10 @@ context size and avoid re-reading anything already summarized here.
 (a) the file header (STANDING CONVENTION + "Current position" line), and
 (b) the **most recent** section entry (the last `### Section X.Y` block).
 Do NOT read older phase logs — the header + last entry are the checkpoint.
-CURRENT POSITION (as of last checkpoint): Phase 3 COMPLETE (3.1–3.4);
-Phase 4 COMPLETE (4.1–4.4, leak property test green at 1000 examples/role).
-NEXT TASK: Phase 5, Section 5.1 — LLMClient hardening + specialist agents
+CURRENT POSITION (as of last checkpoint): Phase 9 COMPLETE (9.1–9.4:
+persistence, graph state/nodes/edges, GraphRunner with per-node persistence +
+crash-resume, failure-edge integration matrix).
+NEXT TASK: Phase 10, Section 10.1 — guardrails (input/output rails)
 (awaiting go-ahead).
 2. `SKILLS.md` — read ONLY the index table + the ONE skill matching the
 current task. For Phase 5 Section 5.1 that is the LLM-client-hardening /
@@ -29,10 +30,7 @@ tell me instead of silently resolving it.
 
 ## 2. Task for this session
 
-Phase 5, Section 5.1 of the implementation plan (see `Kimi.md` Phase 4 exit
-and the plan file): LLMClient hardening (retry/timeout/token budget polish
-on the 3.2 base) + prompt loader + the three specialist agents
-(ophthalmologist, optometrist, pharmacist) with `prompts/<role>/v1.md`.
+According to the user input starte the section and finish it what the user says. Vecause the phase and sections are keep on updated in evey sections so it is dynamic.
 Read the matching SKILLS.md skills before starting. Do not start until I
 say go.
 
@@ -121,4 +119,5 @@ At the beginning of each new Kimi Code session:
 
 ### 5.5 Session Continuity
 
-These instructions apply to every fresh Kimi Code session. At session startup, confirm that you have read `SESSION_START.md` and are following its RTK requirements. If any instruction conflicts with `AGENTS.md`, follow the repository's documented precedence rules and explain the conflict before proceeding.
+These instructions apply to every fresh claude code.session startup, confirm that you have read `SESSION_START.md` and are following its RTK requirements. If any instruction conflicts with `AGENTS.md`, follow the repository's documented precedence rules and explain the conflict before proceeding.
+
