@@ -298,6 +298,17 @@ class RepoTx:
             )
         )
 
+    async def draft_mark_unverified(
+        self, *, case_id: uuid.UUID, revision: int, open_issues_json: list[Any]
+    ) -> None:
+        """Loop exhaustion (§4): flag the existing draft revision UNVERIFIED
+        and attach its open issues — the draft is kept, never dropped."""
+        row = await self._session.get(DraftRow, (case_id, revision))
+        if row is None:
+            raise LookupError(f"draft revision {revision} missing for case {case_id}")
+        row.unverified = True
+        row.open_issues_json = open_issues_json
+
     async def verdict_add(
         self,
         *,
