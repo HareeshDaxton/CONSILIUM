@@ -11,7 +11,7 @@ anything only the user can do (account registrations, dataset downloads, API
 keys into `.env`, tool installs, OS policy changes). If the list is empty,
 the section needed no manual work.
 
-Current position: **PHASE 8 COMPLETE (8.1–8.4). Two-layer audit measured, not assumed. Next: Phase 9, Section 9.1 — persistence layer (`persistence/models.py`).**
+Current position: **PHASE 9 COMPLETE (9.1–9.4) — state machine persists per node, survives crashes, fails closed on every edge (37 Phase-9 tests green on real Postgres). Next: Phase 10, Section 10.1 — guardrails (input/output rails).**
 
 ---
 
@@ -2451,3 +2451,226 @@ a run ID. PHASE 8 EXIT: two-layer audit measured, not assumed.
 not assumed — deterministic 7/8 classes + honest entailment miss, combined
 8/8 with production ordering, zero clean-draft false rejections, all stored
 under `fault-injection-layers-v1`.
+
+## Phase 9 — Graph orchestration + persistence
+
+### Section 9.1 — Persistence layer ✅ DONE
+
+**Goal (from implementation plan):** SQLAlchemy models per ARCHITECTURE.md
+§5.12 DDL (cases, clinical_notes, cad_results, vision_calls, routed_contexts,
+agent_runs, drafts, verdicts, reviews, audit_log, jobs); Alembic init + first
+migration with append-only privilege revocations and column-level encryption
+for `raw_redacted_text_enc`; repositories with one-transaction `transition()`.
+Exit: migration up/down, append-only enforcement, transition atomicity.
+
+**What was done — files created/changed** (bulk by the interrupted subagent,
+verified + finished here)
+- `src/consilium/persistence/models.py` (NEW) — all 11 tables; JSONB state/
+  payload columns; `APPEND_ONLY_TABLES = (audit_log, verdicts, reviews)`.
+- `src/consilium/persistence/alembic/env.py` + `versions/0001_initial.py`
+  (NEW) — async env; migration creates tables, indexes, and REVOKEs
+  UPDATE/DELETE on the append-only tables; `alembic.ini` (NEW).
+- `src/consilium/persistence/encryption.py` (NEW) — `FieldEncryptor`
+  protocol + AES-GCM impl for `raw_redacted_text_enc` (I-6); key from env.
+- `src/consilium/persistence/db.py` (NEW) — async engine/session factory.
+- `src/consilium/persistence/repositories.py` (NEW) — `RepoTx` (one tx per
+  graph node: `transition` writes cases row + audit event together; domain
+  writes join the same tx), `Repositories.load_case` /
+  `find_case_by_idempotency_key` for crash-resume; note text encrypted before
+  the DB and never in `state_json`/audit detail. mypy-strict fix applied here
+  (`AsyncSession` / `Connection` annotations).
+- `src/consilium/core/settings.py` (CHANGED) — DB URL + field-encryption key
+  settings; `.env.example` + `pyproject.toml` + `importlinter.ini` updated
+  (asyncpg/alembic deps, persistence contract).
+- `tests/integration/conftest.py` (NEW) — real local Postgres fixtures;
+  SKIPs with explicit reason when Postgres is down (offline rule preserved:
+  no network, no LLM — local DB only).
+- `tests/integration/test_persistence.py` (NEW, 4 tests) — migration
+  down/up roundtrip; limited role cannot UPDATE/DELETE audit_log/verdicts/
+  reviews; failing domain write rolls back the status transition (atomicity);
+  redacted note stored as ciphertext and decrypts back.
+- `tests/unit/test_encryption.py` (NEW, 5 tests) — round-trip, wrong-key
+  failure, tamper detection, nonce uniqueness, key validation.
+
+**Key decisions & reasons**
+- `raw_redacted_text_enc` encrypted app-side (AES-GCM) so ciphertext is what
+  rests in the DB volume regardless of storage-layer config (§25).
+- Append-only enforced at the DB-role privilege level, not just by
+  convention — test proves `permission denied` for a SELECT+INSERT role.
+- Integration tests use the docker-compose Postgres and skip loudly when
+  unavailable, never falling back to SQLite (DDL uses PG-specific JSONB).
+
+**Verified (commands run)**
+- `rtk docker compose up -d postgres` → started (Docker Desktop was down;
+  launched it first).
+- `rtk uv run pytest tests/integration/test_persistence.py
+  tests/unit/test_encryption.py -q --no-cov` → **9 passed**.
+- `rtk uv run python -m mypy --strict src/consilium/persistence/` → clean
+  (7 source files); `ruff check` → clean.
+
+**Deferred / not verified**
+- `jobs` table is created by the migration but no repo methods use it yet —
+  the worker/queue wiring lands with the API phase (P11).
+- Review-service repo methods (edits diff, reason codes) land in P11.3.
+
+**CLINICAL-REVIEW items**
+- None.
+
+**MANUAL STEPS FOR THE HUMAN (9.1)**
+1. Set `CONSILIUM_FIELD_ENCRYPTION_KEY` (32-byte urlsafe-b64) in `.env`
+   before any non-test run writes a note.
+2. Review + commit the files listed below.
+
+**Commit messages (9.1)**
+- `src/consilium/persistence/models.py` → feat(persistence): add SQLAlchemy models for all §5.12 tables with append-only set
+- `src/consilium/persistence/alembic/` → feat(persistence): add async alembic env and 0001 initial migration with append-only revocations
+- `alembic.ini` → chore(persistence): configure alembic for async migrations
+- `src/consilium/persistence/encryption.py` → feat(persistence): add AES-GCM field encryptor for redacted note at rest (I-6)
+- `src/consilium/persistence/db.py` → feat(persistence): add async engine and session factory
+- `src/consilium/persistence/repositories.py` → feat(persistence): add repositories with one-transaction node transition and idempotency lookup
+- `src/consilium/core/settings.py` → feat(core): add database URL and field-encryption key settings
+- `.env.example` → chore(core): document database and encryption-key env vars
+- `pyproject.toml` → chore(deps): add sqlalchemy asyncpg and alembic pins
+- `importlinter.ini` → chore(arch): declare persistence layer boundary contract
+- `tests/integration/conftest.py` → test(integration): add real-Postgres fixtures with explicit skip when unavailable
+- `tests/integration/test_persistence.py` → test(integration): cover migration roundtrip append-only enforcement and transition atomicity
+- `tests/unit/test_encryption.py` → test(unit): cover field-encryption round-trip tamper and key validation
+
+### Section 9.2 — State, nodes, edges ✅ DONE
+
+**Goal (from implementation plan):** `graph/state.py` CaseState (§5.3);
+`graph/nodes.py` all 12 nodes (thin; logic in ordinary modules);
+`graph/edges.py` plain conditional functions; `graph/deps.py` Deps + builders.
+Exit: node/edge unit tests without running the graph.
+
+**What was done — files** (bulk by the interrupted subagent; verified,
+lint-fixed and finished here)
+- `src/consilium/graph/state.py` (NEW) — `CaseState` (Strict), `FailureRecord`,
+  `AgentRunRecord`. `raw_note_input`/`raw_note_redacted`/`agent_runs_pending`
+  are `exclude=True` → never in `state_json` (I-6). Image bytes never in state
+  (I-14). 9.3 added the persisted `note_submitted` flag (see 9.3).
+- `src/consilium/graph/nodes.py` (NEW) — 12 nodes: precheck_image, input_rail,
+  extract_note, call_vision, build_context, route_context, run_specialists,
+  draft, audit, revise, output_rail, persist_pending; `invoke()` is THE node
+  boundary (AppError → its case_status; anything else → FAILED with the
+  exception TYPE NAME only). Idempotency short-circuits on `state.extraction`
+  / `state.cad` / complete `sub_reports`. Audit: deterministic FIRST, critic
+  only on a clean pass; rejection at `CRITIC_MAX_ROUNDS` → NEEDS_ATTENTION +
+  `unverified=True` + open issues attached.
+- `src/consilium/graph/edges.py` (NEW) — `next_node(state)`: linear chain,
+  audit→output_rail|revise, revise→audit, output_rail→persist_pending,
+  terminal statuses stop; unknown `last_node` raises (no fallback). It doubles
+  as the resume function.
+- `src/consilium/graph/deps.py` (NEW) — `Deps`, `ImageStore` protocol +
+  `MemoryImageStore`, `build_fake_deps` (offline), `build_prod_deps` stub
+  (NotImplementedError until the P11 worker). Output rail = callable seam
+  (no-op until Phase 10).
+- `tests/unit/test_graph_nodes.py` (NEW, 17 tests),
+  `tests/unit/test_graph_edges.py` (NEW, 5 tests).
+
+**Fixes applied here:** ruff (import order, unused noqa, C408 dict literal,
+format). **`call_vision` now passes `RetryPolicy(total_budget_s=
+settings.vision_timeout_s)`** — previously the §4 `VISION_TIMEOUT_S` budget was
+ignored (always the 120 s default). The persistent-cold-start unit test now
+uses a 1.5 s budget (node test file 97 s → a few seconds).
+
+**Verified:** `rtk uv run pytest tests/unit/test_graph_edges.py
+tests/unit/test_graph_nodes.py -q --no-cov` → 22 passed; mypy --strict
+src/consilium/graph clean; ruff clean.
+
+**Deferred:** real output rail (Phase 10); `build_prod_deps` (P11).
+**CLINICAL-REVIEW items:** none. **MANUAL STEPS FOR THE HUMAN (9.2):** none.
+
+### Section 9.3 — Graph build + persistence-per-node + resume ✅ DONE
+
+**Goal:** compile StateGraph (checkpointer unused); every node persists on
+exit; idempotency guards; crash-resume re-enters at last_node's successor.
+Exit: crash-resume integration test without recomputation.
+
+**What was done — files**
+- `src/consilium/graph/build.py` (NEW) — `GraphRunner`: LangGraph `StateGraph`
+  over a `{"state": CaseState}` TypedDict; every node = `invoke` + ONE
+  transaction (`RepoTx.transition` + domain rows + drained agent_runs);
+  routing from START and after every node = `edges.next_node`, so fresh runs
+  and resumes walk the same graph. No checkpointer (Postgres is the truth).
+  Domain rows: input_rail → encrypted redacted note; extract_note →
+  notes_complete; call_vision → cad_results + vision_calls (ok/failed);
+  route_context → routed_contexts (prompt_hash = sha256 of the role-context
+  JSON); draft/revise → drafts; audit → verdicts (layer `deterministic` /
+  `deterministic+llm_critic`) and, on exhaustion, `draft_mark_unverified`.
+  `submit()` honours the Idempotency-Key; `resume()` rehydrates `state_json` +
+  the decrypted redacted note; terminal cases return unchanged. Optional
+  `on_node_persisted` hook (tests simulate crashes with it).
+- `src/consilium/persistence/repositories.py` (CHANGED) —
+  `RepoTx.draft_mark_unverified` (UNVERIFIED flag + open issues on the kept
+  draft revision).
+- `src/consilium/graph/state.py` (CHANGED) — `note_submitted: bool`: a crash
+  after submit but before the input rail persisted the redacted note loses the
+  raw note (never persisted, I-6) → resume fails closed with
+  `NOTE_NOT_RECOVERABLE` instead of silently running without the note (I-5).
+- `importlinter.ini` (CHANGED) — external packages are squashed to their top
+  level, so ignores now read `consilium.persistence.** -> sqlalchemy` and
+  `consilium.graph.build -> langgraph`; the never-matching alembic ignore was
+  removed (alembic env/versions are not package modules). lint-imports had
+  been FAILING since 9.1 ("No matches for ignored import"); now 8 kept, 0 broken.
+- `tests/integration/graph_kit.py` (NEW) — offline kit: computes the
+  GlobalContext the pipeline will actually build from the fake vision output
+  and derives a verifier-clean Director draft from it; fake-LLM factory;
+  runner/submit/count_rows helpers.
+- `tests/integration/test_graph_resume.py` (NEW, 3 tests) — crash after
+  call_vision → resume completes with 0 vision calls and no re-extraction,
+  1 cad_results row, no note text in state_json; crash after input_rail →
+  redacted note rehydrated and extracted once; crash after precheck with a
+  note → FAILED / NOTE_NOT_RECOVERABLE, audited.
+
+**Verified:** `rtk uv run pytest tests/integration/test_graph_resume.py -q
+--no-cov` → 3 passed (real docker-compose Postgres; Docker Desktop had to be
+launched first); mypy --strict graph + persistence clean (13 files);
+`uv run lint-imports --config importlinter.ini` → 8 kept, 0 broken.
+
+**Deferred / not verified:**
+- `raw_vision_json` stores `{p_raw, endpoint_revision}` only — raw masks are
+  not in CaseState, so the P11 overlay endpoint needs the vision node to
+  persist the mask RLEs (small change to the `vision.pipeline.run` return shape).
+- `vision_calls.latency_ms/attempts` are NULL (the pipeline does not surface them).
+- `routed_contexts.prompt_hash` hashes the routed context, not the rendered
+  prompt (specialists render internally).
+
+**CLINICAL-REVIEW items:** none.
+**MANUAL STEPS FOR THE HUMAN (9.3):** keep Docker Desktop running for the
+integration tests (they SKIP loudly otherwise).
+
+### Section 9.4 — Failure-edge integration suite ✅ DONE
+
+**Goal:** happy path; specialist failure → FAILED; critic reject→revise→
+approve; loop exhaustion → NEEDS_ATTENTION with the UNVERIFIED contract;
+vision cold-start retry; revision-pin mismatch → FAILED; bad image →
+REJECTED_INPUT; idempotent re-entry. Offline, real Postgres.
+
+**What was done — files**
+- `tests/integration/test_graph_failures.py` (NEW, 8 tests): happy path
+  (PENDING_REVIEW, 1 verified draft, 1 approved verdict, 6 agent_runs,
+  audited); pharmacist REFUSAL → FAILED at run_specialists, 0 drafts; critic
+  REJECT→APPROVE → round 2, revision 1, 2 verdicts, 2 drafts; critic always
+  REJECT → NEEDS_ATTENTION at CRITIC_MAX_ROUNDS, 3 rejected verdicts, last
+  draft row `unverified=True`; one cold-start 503 → retried (2 calls) →
+  PENDING_REVIEW; forced rogue revision → FAILED at call_vision with a failed
+  vision_calls row; non-image bytes → REJECTED_INPUT at precheck; same
+  Idempotency-Key → same case, and resuming a terminal case does no LLM work.
+  The graph never sets APPROVED (I-4).
+
+**Verified:** `rtk uv run pytest tests/integration/test_graph_failures.py -q
+--no-cov` → 8 passed. Final Phase-9 scoped run (graph unit + resume +
+failures + persistence) → **37 passed in 15 s**. Full suite NOT run (session
+token rule).
+
+**PHASE 9 EXIT:** the state machine persists per node, survives crashes and
+fails closed on every edge — met (offline: fake LLM + fake vision + real PG).
+
+**CLINICAL-REVIEW items:** none.
+**MANUAL STEPS FOR THE HUMAN (9.4):**
+1. Run the full offline battery once before pushing
+   (`uv run pytest -m "not live"`, ruff, mypy, lint-imports) — not run here.
+2. The `AGENTS.md` I-4 row in the working tree reads "fin0000ithout"
+   (accidental corruption, not from this session) — restore it with
+   `git checkout -- AGENTS.md`.
