@@ -1,0 +1,144 @@
+"""Deps — everything a graph node needs, injected (§21: no global state).
+
+``build_prod_deps`` is the ONLY place real clients are constructed
+(ARCHITECTURE.md §5.2); tests and local dev use ``build_fake_deps``
+(FakeLLMClient + FakeVisionClient + in-memory image store, §20 offline rule).
+
+The output rail is a callable seam: Phase 10 wires the real NeMo/deterministic
+output checks behind it; until then the default is a pass-through that only
+asserts the draft exists. The node still exists so the state machine matches
+§4 exactly.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Protocol
+
+from consilium.agents.base import BaseSpecialist
+from consilium.agents.critic_agent import Critic
+from consilium.agents.director import Director
+from consilium.agents.specialists import build_specialists
+from consilium.context.router import RoutingConfig, load_routing_config
+from consilium.core.settings import Settings
+from consilium.intake.deidentify import PhiPolicy, load_phi_patterns
+from consilium.intake.extractor import load_extractor_prompt
+from consilium.intake.input_rail import InputRailConfig, load_input_rail
+from consilium.llm.budget import TokenBudget
+from consilium.llm.client import LLMClient
+from consilium.llm.prompt_loader import PromptLoader
+from consilium.schemas.agents import DirectorDraft
+from consilium.schemas.enums import Role
+from consilium.vision.client import VisionClient
+from consilium.vision.config import (
+    ModelsConfig,
+    Thresholds,
+    load_models_config,
+    load_thresholds,
+)
+
+__all__ = ["Deps", "ImageStore", "MemoryImageStore", "build_fake_deps", "build_prod_deps"]
+
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+DEFAULT_ROUTING_PATH = _REPO_ROOT / "configs" / "routing.yaml"
+
+
+class ImageStore(Protocol):
+    """Object-store seam (§25: local FS in dev ↔ S3-compatible in prod).
+
+    Image bytes are loaded by the node that needs them, never carried in
+    CaseState (I-14; state_json must stay free of image data).
+    """
+
+    async def load(self, uri: str) -> bytes: ...
+
+
+@dataclass(frozen=True, slots=True)
+class MemoryImageStore:
+    """Test/dev stand-in: uri → bytes mapping kept in memory."""
+
+    images: dict[str, bytes] = field(default_factory=dict)
+
+    async def load(self, uri: str) -> bytes:
+        try:
+            return self.images[uri]
+        except KeyError:
+            from consilium.core.errors import InputRejected
+
+            raise InputRejected("IMAGE_NOT_FOUND", detail=f"no object at {uri}") from None
+
+
+@dataclass(frozen=True)
+class Deps:
+    settings: Settings
+    thresholds: Thresholds
+    models: ModelsConfig
+    routing: RoutingConfig
+    input_rail: InputRailConfig
+    phi_policy: PhiPolicy
+    extractor_prompt: str
+    vision: VisionClient
+    image_store: ImageStore
+    llm: LLMClient
+    specialists: dict[Role, BaseSpecialist]
+    director: Director
+    critic: Critic
+    output_rail: Callable[[DirectorDraft], None]
+    budget: TokenBudget | None = None
+
+
+def _noop_output_rail(draft: DirectorDraft) -> None:
+    """Phase 10 seam: real output checks land in guardrails/output_checks."""
+
+
+def build_fake_deps(
+    settings: Settings,
+    *,
+    llm: LLMClient,
+    vision: VisionClient,
+    image_store: ImageStore | None = None,
+    output_rail: Callable[[DirectorDraft], None] | None = None,
+) -> Deps:
+    """Fully offline deps: fake clients, committed configs, no network (§20)."""
+    loader = PromptLoader()
+    return Deps(
+        settings=settings,
+        thresholds=load_thresholds(),
+        models=load_models_config(),
+        routing=load_routing_config(DEFAULT_ROUTING_PATH),
+        input_rail=load_input_rail(),
+        phi_policy=load_phi_patterns(),
+        extractor_prompt=load_extractor_prompt(),
+        vision=vision,
+        image_store=image_store or MemoryImageStore(),
+        llm=llm,
+        specialists=build_specialists(settings=settings, llm=llm, fixture="default"),
+        director=Director(
+            prompt=loader.load("director", "v1"),
+            llm=llm,
+            model=settings.llm_model_director,
+            temperature=settings.llm_temperature_director,
+            fixture="default",
+        ),
+        critic=Critic(
+            prompt=loader.load("critic", "v1"),
+            llm=llm,
+            model=settings.llm_model_critic,
+            temperature=settings.llm_temperature_critic,
+            fixture="default",
+        ),
+        output_rail=output_rail or _noop_output_rail,
+    )
+
+
+def build_prod_deps(settings: Settings) -> Deps:
+    """Real clients (OpenAI + HTTP vision endpoint). Constructed HERE only."""
+    from consilium.llm.client_openai import OpenAILLMClient
+    from consilium.vision.client_http import HttpVisionClient
+
+    raise NotImplementedError(
+        "prod deps land with the API worker (P11): "
+        f"{OpenAILLMClient.__name__} + {HttpVisionClient.__name__} wiring"
+    )
