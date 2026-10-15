@@ -11,10 +11,10 @@ context size and avoid re-reading anything already summarized here.
 (a) the file header (STANDING CONVENTION + "Current position" line), and
 (b) the **most recent** section entry (the last `### Section X.Y` block).
 Do NOT read older phase logs — the header + last entry are the checkpoint.
-CURRENT POSITION (as of last checkpoint): Phase 9 COMPLETE (9.1–9.4:
-persistence, graph state/nodes/edges, GraphRunner with per-node persistence +
-crash-resume, failure-edge integration matrix).
-NEXT TASK: Phase 10, Section 10.1 — guardrails (input/output rails)
+CURRENT POSITION (as of last checkpoint): Phase 10 COMPLETE (10.1–10.4:
+deterministic input checks, NeMo wiring with fake engine, output checks,
+adversarial rail suite; rail triggers → NEEDS_ATTENTION + audit event).
+NEXT TASK: Phase 11 — persistence, API, auth, review service
 (awaiting go-ahead).
 2. `SKILLS.md` — read ONLY the index table + the ONE skill matching the
 current task. For Phase 5 Section 5.1 that is the LLM-client-hardening /
