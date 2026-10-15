@@ -1,0 +1,12 @@
+# Input rail on the REDACTED clinical note (AGENTS.md §14; Colang 1.0).
+# Model-needed injection detection ONLY — length/charset/PHI/lexicon checks
+# are deterministic (guardrails/input_checks.py) and run first.
+
+define bot refuse note
+  "RAIL_BLOCKED:input_note_injection"
+
+define flow input note rail
+  $allowed = execute self_check_input
+  if not $allowed
+    bot refuse note
+    stop
