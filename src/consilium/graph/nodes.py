@@ -29,9 +29,9 @@ from consilium.context import router as context_router
 from consilium.core.errors import AppError
 from consilium.graph.deps import Deps
 from consilium.graph.state import AgentRunRecord, CaseState, FailureRecord
+from consilium.guardrails import input_checks, output_checks
 from consilium.intake import deidentify
 from consilium.intake import extractor as extractor_mod
-from consilium.intake import input_rail as rail_mod
 from consilium.intake.extractor import PROMPT_VERSION as EXTRACTOR_PROMPT_VERSION
 from consilium.schemas.audit import MergedVerdict
 from consilium.schemas.enums import CaseStatus
@@ -67,15 +67,20 @@ async def precheck_image(state: CaseState, deps: Deps) -> CaseState:
 
 
 async def input_rail(state: CaseState, deps: Deps) -> CaseState:
-    """Deterministic input rail + de-identification on the raw note (§10).
-    Runs BEFORE any LLM sees any note text (I-6/I-7). Note is optional."""
+    """Deterministic input checks (guardrails/input_checks, §14) +
+    de-identification on the raw note (§10). Runs BEFORE any LLM sees any
+    note text (I-6/I-7) and therefore before extract_note. A trigger raises
+    PolicyViolation → NEEDS_ATTENTION (§4); the runner audits it as a
+    ``guardrail.triggered`` event. Note is optional."""
     raw = state.raw_note_input if state.raw_note_input is not None else state.raw_note_redacted
     if raw is None:
         return state.model_copy(update={"status": CaseStatus.INPUT_RAIL_PASSED})
     if state.raw_note_input is not None:
-        rail_mod.check_note(raw, deps.input_rail)  # raises PolicyViolation/InputRejected
+        input_checks.check_note(raw, deps.input_rail, deps.phi_policy)  # raises PolicyViolation
     if state.raw_note_redacted is None:
         redacted = deidentify.redact(raw, deps.phi_policy)
+        # model-based (NeMo) injection rail sees the REDACTED note only (I-6/I-7)
+        await deps.rails.check_input(redacted.text)
         return state.model_copy(
             update={
                 "status": CaseStatus.INPUT_RAIL_PASSED,
@@ -321,11 +326,14 @@ async def revise(state: CaseState, deps: Deps) -> CaseState:
 
 
 async def output_rail(state: CaseState, deps: Deps) -> CaseState:
-    """Output rail on the draft before clinician view (§14). The callable
-    seam is wired to real checks in Phase 10; failures → NEEDS_ATTENTION."""
+    """Output rail on the draft before clinician view (§14): deterministic
+    output_checks FIRST (lexicon, PHI echo, disclaimer), then the model-based
+    NeMo rail. Any trigger → PolicyViolation → NEEDS_ATTENTION + a
+    ``guardrail.triggered`` audit event. Never alters the draft."""
     if state.draft is None:
         raise ValueError("output_rail requires draft (graph ordering bug)")
-    deps.output_rail(state.draft)  # raises PolicyViolation
+    output_checks.check_draft(state.draft, state.global_ctx, deps.output_policy, deps.phi_policy)
+    await deps.rails.check_output("\n".join(output_checks.draft_texts(state.draft)))
     return state.model_copy(update={"status": CaseStatus.OUTPUT_RAIL_PASSED})
 
 
