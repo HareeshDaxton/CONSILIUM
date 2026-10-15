@@ -243,19 +243,23 @@ def check_coverage(draft: DirectorDraft, global_ctx: GlobalContext) -> tuple[Iss
     return tuple(issues)
 
 
+def note_supplies_stage(global_ctx: GlobalContext) -> bool:
+    """True when the clinical note itself states a stage/severity (I-12) —
+    the ONE gate shared by the verifier and the output rail."""
+    facts = _fact_map(global_ctx)
+
+    def _supplies(ref: str) -> bool:
+        value = facts[ref].value
+        return isinstance(value, str) and STAGE_SEVERITY_PATTERN.search(value) is not None
+
+    return any(_supplies(ref) for ref in _NOTE_STAGE_SOURCES if ref in facts)
+
+
 def check_language(draft: DirectorDraft, global_ctx: GlobalContext) -> tuple[Issue, ...]:
     """UNSAFE_LANGUAGE — forbidden phrases from verify/lexicon.py. Stage/
     severity wording is allowed only when the clinical note itself supplies it
     (I-12)."""
-    facts = _fact_map(global_ctx)
-
-    def _note_supplies_stage(ref: str) -> bool:
-        value = facts[ref].value
-        return isinstance(value, str) and STAGE_SEVERITY_PATTERN.search(value) is not None
-
-    note_supports_stage = any(
-        _note_supplies_stage(ref) for ref in _NOTE_STAGE_SOURCES if ref in facts
-    )
+    note_supports_stage = note_supplies_stage(global_ctx)
     scopes: list[tuple[str | None, str]] = [(None, draft.impression)]
     scopes.extend((claim.id, claim.text) for claim in draft.claims)
     scopes.extend((None, rec.text) for rec in draft.recommendations)
