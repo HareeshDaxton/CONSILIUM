@@ -316,21 +316,13 @@ async def test_output_rail_and_persist_pending(deps: Deps) -> None:
     assert final.status == CaseStatus.PENDING_REVIEW
 
 
-async def test_output_rail_violation_needs_attention(settings: Settings) -> None:
-    from consilium.core.errors import PolicyViolation
-
-    def rail(draft: object) -> None:
-        raise PolicyViolation("DOSE_PATTERN", case_status="NEEDS_ATTENTION")
-
-    deps = build_fake_deps(
-        settings,
-        llm=_llm(),
-        vision=vf.FakeVisionClient(revision=PIN),
-        image_store=MemoryImageStore({IMAGE_URI: IMAGE}),
-        output_rail=rail,
-    )
-    out = await _run("output_rail", _state_with_entry_draft(), deps)
+async def test_output_rail_violation_needs_attention(deps: Deps) -> None:
+    state = _state_with_entry_draft()
+    assert state.draft is not None
+    dosed = state.draft.model_copy(update={"impression": "Start timolol 0.5% drops."})
+    out = await _run("output_rail", state.model_copy(update={"draft": dosed}), deps)
     assert out.status == CaseStatus.NEEDS_ATTENTION
+    assert out.failure is not None and out.failure.type == "DRAFT_DOSE_OR_REGIMEN"
 
 
 # ---------------------------------------------------------------- snapshot PHI
