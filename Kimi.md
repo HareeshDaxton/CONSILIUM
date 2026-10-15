@@ -11,7 +11,7 @@ anything only the user can do (account registrations, dataset downloads, API
 keys into `.env`, tool installs, OS policy changes). If the list is empty,
 the section needed no manual work.
 
-Current position: **PHASE 9 COMPLETE (9.1–9.4) — state machine persists per node, survives crashes, fails closed on every edge (37 Phase-9 tests green on real Postgres). Next: Phase 10, Section 10.1 — guardrails (input/output rails).**
+Current position: **PHASE 10 COMPLETE (10.1–10.4) — deterministic input/output rails + NeMo wiring (fake engine offline) + adversarial suite; every trigger → NEEDS_ATTENTION + guardrail.triggered audit event. Next: Phase 11 — persistence/API/auth/review service.**
 
 ---
 
@@ -2674,3 +2674,227 @@ fails closed on every edge — met (offline: fake LLM + fake vision + real PG).
 2. The `AGENTS.md` I-4 row in the working tree reads "fin0000ithout"
    (accidental corruption, not from this session) — restore it with
    `git checkout -- AGENTS.md`.
+
+---
+
+## Phase 10 — Guardrails (input/output rails)
+
+### Section 10.1 — Deterministic input checks ✅ DONE
+
+**Goal:** `guardrails/input_checks.py` — length cap, charset allowlist, PHI
+patterns (shared config with de-identification), injection lexicon — running
+BEFORE de-identification/extraction, wired into the graph; trigger → audit event.
+
+**What was done — files**
+- `src/consilium/guardrails/input_checks.py` (NEW) — the canonical
+  deterministic input rail. Checks in order: length cap (reject, never
+  truncate) → control-char fraction → **charset allowlist** (Unicode
+  categories Co/Cs/Cn + bidi embedding/override/isolate controls
+  U+202A–202E, U+2066–2069 — Trojan-Source reordering) → instruction-like
+  patterns on NFKC + zero-width-stripped text → **PHI detection using the
+  SAME `phi_patterns.yaml` policy de-identification uses** (config
+  `phi.on_match: redact|block`; redact = report pattern NAMES, block =
+  NEEDS_ATTENTION). Returns `InputCheckResult(phi_patterns=...)` (names only).
+- `src/consilium/intake/input_rail.py` (CHANGED) — now a pure re-export shim
+  of `guardrails.input_checks` (single source; a test asserts identity).
+- `configs/guardrails/policies/input_rail.yaml` (CHANGED, v1 → v2) — new
+  `charset` and `phi` blocks.
+- `src/consilium/graph/nodes.py` (CHANGED) — `input_rail` node calls
+  `input_checks.check_note(raw, deps.input_rail, deps.phi_policy)`; it runs
+  before `extract_note`, so no LLM sees un-checked text.
+- `src/consilium/graph/deps.py` (CHANGED) — imports the rail config from guardrails.
+- `src/consilium/graph/build.py` (CHANGED) — `_write_transition` appends a
+  `guardrail.triggered` audit event (`{rail, reason, rule}` — rule NAMES only)
+  whenever `input_rail`/`output_rail` fails (AGENTS.md §14: rail events audited).
+- `tests/unit/test_input_checks.py` (NEW, 13 tests) — charset blocks/allows
+  (incl. CJK/umlaut/zero-width benign), PHI redact vs block without values,
+  shim identity, audit event written for rail failures and NOT for others
+  (fake tx — no Docker needed).
+
+**Key decision / doc conflict (resolved by precedence AGENTS.md > plan):**
+the plan's 10.1 exit says "trigger → REJECTED_INPUT", but AGENTS.md §4 says
+`INPUT_RAIL_PASSED fail → NEEDS_ATTENTION`. Kept **NEEDS_ATTENTION** (as the
+P3 rail already did). Flagged for the human.
+
+**Verified:** `uv run pytest tests/unit/test_input_checks.py
+tests/unit/test_input_rail.py tests/unit/test_graph_nodes.py
+tests/unit/test_deidentify.py -q --no-cov` → 80 passed; `tests/adversarial`
+→ 12 passed; mypy --strict guardrails/intake/graph clean (13 files);
+lint-imports 8 kept / 0 broken; ruff clean.
+
+**CLINICAL-REVIEW items:** `phi.on_match` default `redact` (vs block).
+**MANUAL STEPS FOR THE HUMAN (10.1):** confirm NEEDS_ATTENTION (AGENTS §4)
+vs REJECTED_INPUT (plan) for input-rail triggers; fix whichever doc is wrong.
+
+### Section 10.2 — NeMo wiring ✅ DONE (offline; real NeMo engine NOT exercised)
+
+**Goal:** `configs/guardrails/config.yml` + `rails/input_note.co` +
+`rails/output_draft.co` (model-needed injection detection only; no dialog/
+topic/retrieval rails; nothing in front of vision); `guardrails/nemo_wiring.py`
+with init, timing, metrics, documented gap list.
+
+**What was done — files**
+- `configs/guardrails/config.yml` (NEW) — main model pinned
+  `gpt-4o-mini-2024-07-18`; `rails.input.flows: [input note rail]`,
+  `rails.output.flows: [output draft rail]`; `self_check_input` /
+  `self_check_output` prompts (note declared DATA, screening wording allowed).
+  No dialog/topic/retrieval rails.
+- `configs/guardrails/rails/input_note.co`, `output_draft.co` (NEW, Colang
+  1.0) — flows call `self_check_input/output`; on block the bot answers
+  `RAIL_BLOCKED:<rule>` and stops. (`rails/.gitkeep` removed.)
+- `src/consilium/guardrails/nemo_wiring.py` (NEW) — `RailEngine` protocol;
+  `NemoRailEngine` (lazy `importlib` import of `nemoguardrails`, never loaded
+  by the API image or tests); `FakeRailEngine` (trigger substrings,
+  fail/delay modes); `GuardedRails` (timeout, Prometheus
+  `consilium_rail_latency_seconds{rail}` histogram +
+  `consilium_rail_triggers_total{rail,rule}` counter on an INJECTED registry,
+  in-memory `LatencyRecorder` with p50/p95); **fail closed** — engine error or
+  timeout → `PolicyViolation(RAIL_UNAVAILABLE, NEEDS_ATTENTION)`; blocks →
+  `NOTE_INJECTION_MODEL` / `DRAFT_POLICY_MODEL` (NEEDS_ATTENTION). `GAPS`:
+  documented per-rule gap list.
+- `src/consilium/graph/deps.py` (CHANGED) — `Deps.rails: GuardedRails`;
+  fake deps default to a never-triggering `FakeRailEngine`; prod note for P11.
+- `src/consilium/graph/nodes.py` (CHANGED) — `input_rail` node runs the
+  model rail on the **redacted** note after deterministic checks +
+  de-identification (raw note never reaches a provider, I-6/I-7).
+- `tests/unit/test_nemo_wiring.py` (NEW, 6 tests) — config scope (input/output
+  only, pinned model, colang flows + block markers), gap list covers each rule,
+  fixture triggers fire with metrics (counter + histogram counts) and p50 ≤ p95,
+  engine failure and timeout fail closed, graph seam: the model rail sees
+  `[REDACTED:…]` text, never the MRN.
+
+**Key decision:** NeMo runs on the REDACTED note, not the raw note — AGENTS.md
+§14 says "input rail on the raw note", but a model-based rail sends text to an
+LLM provider, and I-6 forbids identifiers in prompts. Deterministic checks
+still run on the raw note. Flagged for the human.
+
+**Verified:** `uv run pytest tests/unit/test_nemo_wiring.py
+tests/unit/test_graph_nodes.py tests/unit/test_input_checks.py -q --no-cov` →
+34 passed; mypy --strict guardrails+graph clean; ruff clean; lint-imports 8/0.
+Latency p50/p95 recorded by `LatencyRecorder` on the FAKE engine only —
+**real NeMo latency NOT measured** (dependency not installed; offline rule).
+
+**Deferred / not verified:** `nemoguardrails` is not a dependency (not in
+`uv.lock`); `NemoRailEngine` has never run. Its `generate_async(...,
+options={"rails": [...]})` call shape must be checked against the installed
+NeMo version before P11 prod wiring.
+
+**CLINICAL-REVIEW items:** none (the self-check prompt wording should be read
+by a clinician co-author alongside the output-rail policy in 10.3).
+**MANUAL STEPS FOR THE HUMAN (10.2):**
+1. Decide whether to add NeMo: `uv add --optional guardrails nemoguardrails`
+   (heavy: pulls langchain + fastembed — fastembed is an embedding lib, so
+   keep it OUT of the API image's default group per I-10; only the rail
+   engine imports it).
+2. With the dep installed + `OPENAI_API_KEY`, run a live smoke of
+   `NemoRailEngine` on the synthetic fixtures and record real p50/p95.
+3. Confirm the "NeMo sees the redacted note" reading of AGENTS.md §14 vs I-6.
+
+### Section 10.3 — Output checks ✅ DONE
+
+**Goal:** `guardrails/output_checks.py` — forbidden-language + dose patterns
+(reusing `verify/lexicon.py`, single source), PHI-echo scan, mandatory
+disclaimer presence; wired into the output_rail node; trigger →
+NEEDS_ATTENTION + audit event.
+
+**What was done — files**
+- `src/consilium/guardrails/output_checks.py` (NEW) — `check_draft(draft,
+  global_ctx, cfg, phi_policy)` scans EVERY visible text field (`draft_texts`:
+  impression, claims, recommendations, limitations, disagreement topic/
+  positions/resolution) on normalized text: lexicon hits via
+  `verify.lexicon.scan_text` (stage/severity allowed only when
+  `verify.deterministic.note_supplies_stage`) → `DRAFT_DEFINITIVE_DIAGNOSIS` /
+  `DRAFT_DOSE_OR_REGIMEN` / `DRAFT_STAGE_SEVERITY`; PHI echo via the shared
+  `phi_patterns.yaml` → `DRAFT_PHI_ECHO`; missing screening-support disclaimer
+  in `limitations` → `DRAFT_MISSING_DISCLAIMER`. All NEEDS_ATTENTION, detail
+  = rule name only. Never mutates the draft.
+- `src/consilium/guardrails/normalize.py` (NEW) — shared matching normalizer
+  for BOTH rails: NFKC, strip zero-width + soft hyphen, fold Cyrillic/Greek
+  Latin lookalikes (escaped code points, ruff-clean), collapse whitespace.
+  `input_checks` now uses it (stricter than the P3 normalizer; no loosening).
+- `configs/guardrails/policies/output_rail.yaml` (NEW) — disclaimer regex list
+  (`screening[- ]support`); lexicon deliberately NOT here.
+- `src/consilium/verify/deterministic.py` (CHANGED, refactor only) —
+  extracted public `note_supplies_stage(global_ctx)` from `check_language`
+  so the verifier and the output rail share one stage-support gate.
+- `src/consilium/graph/deps.py` (CHANGED) — the Phase-9 `output_rail`
+  callable seam is REPLACED by `output_policy: OutputRailConfig`.
+- `src/consilium/graph/nodes.py` (CHANGED) — `output_rail` node: deterministic
+  `check_draft` FIRST, then `deps.rails.check_output(...)` (NeMo layer);
+  failures audited via the 10.1 `guardrail.triggered` event.
+- `tests/unit/test_output_checks.py` (NEW, 10 tests) — known-good draft
+  passes; lexicon imported not redeclared; diagnosis/dose/stage in impression;
+  dose in limitations; PHI echo with rule-name-only detail; missing
+  disclaimer; field coverage; no mutation.
+- `tests/unit/test_graph_nodes.py` (CHANGED) — output-rail violation test now
+  uses a real dosed draft (`DRAFT_DOSE_OR_REGIMEN`) instead of the removed seam.
+
+**Verified:** `uv run pytest tests/unit/test_graph_nodes.py
+tests/unit/test_input_rail.py tests/unit/test_input_checks.py
+tests/unit/test_nemo_wiring.py tests/unit/test_verifier.py -q --no-cov` → 111
+passed; `tests/unit/test_output_checks.py` → 10 passed; mypy --strict
+guardrails/graph/verify clean (16 files); ruff clean; lint-imports 8/0.
+
+**CLINICAL-REVIEW items:** disclaimer regex (`output_rail.yaml`).
+**MANUAL STEPS FOR THE HUMAN (10.3):** none.
+
+### Section 10.4 — Adversarial rail suite ✅ DONE
+
+**Goal:** tests/adversarial/: ≥5 positives + ≥5 benign near-misses per rule,
+with obfuscations (unicode homoglyphs, spacing, mixed case, multilingual);
+definitive-diagnosis bait, dose bait, PHI-echo bait. Near-misses must NOT trigger.
+
+**What was done — files**
+- `tests/adversarial/test_rails_input.py` (NEW, 72 tests) — rules:
+  instruction_override, instruction_override_multilingual, prompt_extraction,
+  role_hijack, output_redirection, charset (≥5 positives + 5 near-misses
+  each, asserting the exact rule in `detail`), plus PHI in block mode (5 + 5,
+  detail carries names, never digits). Obfuscations: zero-width, full-width,
+  Cyrillic homoglyphs, newline/space runs, mixed case, es/fr/de/it.
+- `tests/adversarial/test_rails_output.py` (NEW, 55 tests) — bait planted in
+  the known-good corpus draft: DEFINITIVE_DIAGNOSIS (6), DOSE_OR_REGIMEN (6,
+  incl. comma decimal `0,5 %`, full-width `２ｍｇ`, `250MG`), STAGE_SEVERITY
+  (5, incl. NBSP), PHI_ECHO (5), MISSING_DISCLAIMER (5); 5 near-misses each
+  (screening wording, CDR/IOP numerals, `3–6 months`, "moderate confidence",
+  dates, etc.); stage wording passes when the note's prior_dx supplies it;
+  rail never changes the draft.
+- `configs/guardrails/policies/input_rail.yaml` (CHANGED) — new pattern
+  `instruction_override_multilingual` (es/fr/de/pt/it). Tightening only.
+- `configs/guardrails/policies/output_rail.yaml` (CHANGED) — disclaimer
+  separator accepts U+2010/U+2011 hyphens (false-reject fix on benign text).
+- Format-only: `src/consilium/verify/merge.py`, `src/consilium/eval/
+  fault_injection.py`, `tests/unit/test_fault_injection_layers.py`
+  (pre-existing `ruff format --check` drift; no behaviour change).
+
+**Observed limits (documented, NOT loosened):** the lexicon is a substring
+list, so "the disc has glaucomatous cupping" trips DEFINITIVE_DIAGNOSIS
+(false positive — fixing it means editing `verify/lexicon.py`, which is a
+forbidden-language rule change needing human sign-off). Non-English diagnosis
+phrasing in drafts is left to the NeMo output rail (`GAPS`). Letter-spaced
+obfuscation ("h a s glaucoma") is not normalized.
+
+**PHASE 10 EXIT VERIFICATION (full offline battery, run once):**
+- `uv run ruff check .` → clean; `uv run ruff format --check .` → 175 formatted
+- `uv run mypy --strict src/` → no issues (79 files)
+- `uv run lint-imports --config importlinter.ini` → 8 kept, 0 broken
+- `uv run python scripts/schema_snapshot.py --check` → up to date (23 models)
+- `uv run pytest -m "not live" -q` → **715 passed, 15 skipped**, coverage 89%
+  (15 skipped = Postgres integration tests; Docker Desktop was not running —
+  NOT verified this session). The integration kit's clean draft was checked
+  directly against the new output rail → passes.
+
+**CLINICAL-REVIEW items:** none new.
+**MANUAL STEPS FOR THE HUMAN (10.4):** start Docker Desktop and run
+`uv run pytest tests/integration -q --no-cov` once (rail changes touch the
+graph's input_rail/output_rail nodes).
+
+## ✅ PHASE 10 COMPLETE — rails enforce content policy without touching shape/values
+
+Deterministic input checks (raw note) → de-identification → NeMo model rail
+(redacted note) → … → deterministic output checks (draft) → NeMo model rail
+→ PENDING_REVIEW. Every trigger → NEEDS_ATTENTION + `guardrail.triggered`
+audit event (rule names only). Single-source lexicon (verify/) and PHI
+patterns (phi_patterns.yaml) shared across verifier, de-identification and
+rails. Open human decisions: (1) NEEDS_ATTENTION vs REJECTED_INPUT for
+input-rail triggers (AGENTS §4 vs plan 10.1); (2) NeMo on redacted vs raw
+note (§14 vs I-6); (3) adding the optional `nemoguardrails` dependency.
