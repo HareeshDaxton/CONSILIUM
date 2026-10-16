@@ -11,11 +11,10 @@ context size and avoid re-reading anything already summarized here.
 (a) the file header (STANDING CONVENTION + "Current position" line), and
 (b) the **most recent** section entry (the last `### Section X.Y` block).
 Do NOT read older phase logs — the header + last entry are the checkpoint.
-CURRENT POSITION (as of last checkpoint): Phase 10 COMPLETE (10.1–10.4:
-deterministic input checks, NeMo wiring with fake engine, output checks,
-adversarial rail suite; rail triggers → NEEDS_ATTENTION + audit event).
-NEXT TASK: Phase 11 — persistence, API, auth, review service
-(awaiting go-ahead).
+CURRENT POSITION (as of last checkpoint): Phase 11 COMPLETE (11.1–11.4:
+FastAPI app + JWT auth + RFC 7807; cases endpoints + Postgres job queue/worker;
+clinician review service + gated report; offline e2e vertical slice).
+NEXT TASK: Phase 12 — React review UI (awaiting go-ahead).
 2. `SKILLS.md` — read ONLY the index table + the ONE skill matching the
 current task. For Phase 5 Section 5.1 that is the LLM-client-hardening /
 agent-prompt skills. Read no other skills unless the task later requires them.
