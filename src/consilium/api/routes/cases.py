@@ -16,18 +16,28 @@ import hashlib
 import uuid
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, File, Form, Header, Request, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Header, Query, Request, Response, UploadFile
 
-from consilium.api.auth import Identity, require_auth, require_clinician, require_submitter
+from consilium.api.auth import (
+    ApiRole,
+    Identity,
+    require_auth,
+    require_clinician,
+    require_submitter,
+)
 from consilium.api.deps import AppDeps
 from consilium.api.errors import problem
 from consilium.api.schemas_http import (
     CadSummary,
+    CaseListItem,
+    CaseListView,
     CaseView,
     DraftView,
     EvidenceChip,
+    FactView,
     FailureView,
     SubmitResponse,
+    TimelineEvent,
 )
 from consilium.core.errors import InputRejected, NotFound, StatusConflict
 from consilium.graph.edges import next_node
@@ -120,6 +130,35 @@ async def submit_case(
 
 
 # ------------------------------------------------------------------ reads
+
+
+@router.get("/cases", response_model=CaseListView)
+async def list_cases(
+    request: Request,
+    identity: Annotated[Identity, Depends(require_auth)],
+    status: Annotated[list[CaseStatus] | None, Query()] = None,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+) -> CaseListView:
+    """Newest first, optional status filter (the UI's queue views). Clinicians
+    see every case; a submitter-only caller sees the cases they submitted."""
+    owner = None if identity.has(ApiRole.CLINICIAN) else identity.sub
+    rows = await _deps(request).repos.cases_list(
+        statuses=tuple(s.value for s in status or ()), created_by=owner, limit=limit
+    )
+    items = []
+    for row in rows:
+        state = CaseState.from_snapshot(row.state_json)
+        items.append(
+            CaseListItem(
+                case_id=str(row.id),
+                status=CaseStatus(row.status),
+                laterality=state.laterality,
+                created_at=row.created_at,
+                tier=None if state.cad is None else state.cad.classifier.tier.value,
+                unverified=state.unverified,
+            )
+        )
+    return CaseListView(items=tuple(items))
 
 
 @router.get("/cases/{case_id}", response_model=CaseView)
@@ -228,4 +267,34 @@ async def get_overlay(
         png,
         media_type="image/png",
         headers={"ETag": f'"{key}"', "Cache-Control": "private, max-age=3600"},
+    )
+
+
+@router.get("/cases/{case_id}/timeline", response_model=tuple[TimelineEvent, ...])
+async def get_timeline(
+    case_id: str,
+    request: Request,
+    _: Annotated[Identity, Depends(require_auth)],
+) -> tuple[TimelineEvent, ...]:
+    """Audit events in append order: name, opaque actor, time (no detail)."""
+    deps = _deps(request)
+    persisted, _state = await _load(deps, case_id)
+    events = await deps.repos.audit_events(persisted.id)
+    return tuple(TimelineEvent(event=e.event, actor=e.actor, at=e.at) for e in events)
+
+
+@router.get("/cases/{case_id}/facts", response_model=tuple[FactView, ...])
+async def get_facts(
+    case_id: str,
+    request: Request,
+    _: Annotated[Identity, Depends(require_clinician)],
+) -> tuple[FactView, ...]:
+    """The case's C_global fact sheet (CAD + de-identified note facts), read-only.
+    409 until the context has been built."""
+    _persisted, state = await _load(_deps(request), case_id)
+    if state.global_ctx is None:
+        raise StatusConflict("FACTS_NOT_AVAILABLE")
+    return tuple(
+        FactView(id=f.id, label=f.label, value=f.value, unit=f.unit, source=f.source)
+        for f in state.global_ctx.facts
     )
