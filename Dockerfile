@@ -28,4 +28,4 @@ ENV PATH="/app/.venv/bin:$PATH"
 EXPOSE 8000
 
 # Default role: api. worker/fake-vision override `command` in docker-compose.yml.
-CMD ["uvicorn", "consilium.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "consilium.api.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]
