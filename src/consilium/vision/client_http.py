@@ -35,12 +35,14 @@ class HttpVisionClient:
         token: str,
         pinned_revision: str,
         request_timeout_s: float = 30.0,
+        transport: httpx.AsyncBaseTransport | None = None,  # tests: in-process fake server
     ) -> None:
         self._pinned_revision = pinned_revision
         self._client = httpx.AsyncClient(
             base_url=endpoint_url,
             headers={"Authorization": f"Bearer {token}"},
             timeout=httpx.Timeout(request_timeout_s),
+            transport=transport,
         )
 
     async def aclose(self) -> None:
