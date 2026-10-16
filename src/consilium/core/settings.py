@@ -53,6 +53,12 @@ class Settings(BaseSettings):
     vision_pinned_revision: str | None = None
     vision_timeout_s: float = Field(default=120.0, gt=0)
 
+    # ----- Guardrails model rail (§14) -----
+    # "nemo" in any real deployment; "passthrough" only for the local compose
+    # stack without the optional nemoguardrails dependency. Deterministic
+    # input/output checks run in BOTH modes.
+    rails_engine: Literal["nemo", "passthrough"] = "nemo"
+
     # ----- Observability (§18; optional in dev) -----
     langfuse_host: str | None = None
     langfuse_public_key: SecretStr | None = None
@@ -60,8 +66,18 @@ class Settings(BaseSettings):
     otel_endpoint: str | None = None
 
     # ----- Auth (§17) -----
-    jwt_secret: SecretStr  # required secret — no default
-    jwt_algorithm: str = "HS256"
+    jwt_secret: SecretStr  # required secret — no default (HS* signing key)
+    jwt_algorithm: Literal["HS256", "HS384", "HS512", "RS256", "ES256"] = "HS256"
+    # OIDC-ready: with RS256/ES256 the IdP's public key verifies tokens and
+    # issuer/audience are checked when set.
+    jwt_public_key: SecretStr | None = None
+    jwt_issuer: str | None = None
+    jwt_audience: str | None = None
+    api_docs_enabled: bool = False  # /docs off unless explicitly enabled (non-prod)
+
+    # ----- Worker (§5.2 Postgres-backed job queue) -----
+    worker_poll_interval_s: float = Field(default=1.0, gt=0)
+    worker_max_attempts: int = Field(default=3, ge=1)
 
     @model_validator(mode="after")
     def _check_vision_mode(self) -> Self:
