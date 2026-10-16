@@ -83,3 +83,38 @@ class ValidationFailure(AppError):
 
     case_status: str = "FAILED"
     problem_type: str = "validation-failed"
+
+
+# ---------------------------------------------------------------- API errors
+# Raised by the API/review layers only. They never reach a graph node, so
+# their ``case_status`` is irrelevant; ``problem_type`` drives the RFC 7807
+# response (ARCHITECTURE.md §7). ``reason`` stays a short safe code — never
+# echo request content into it.
+
+
+class Unauthorized(AppError):
+    """Missing, malformed, expired or wrongly-signed bearer token."""
+
+    problem_type: str = "unauthorized"
+
+
+class Forbidden(AppError):
+    """Authenticated, but the role/identity may not perform this action."""
+
+    problem_type: str = "forbidden"
+
+
+class NotFound(AppError):
+    problem_type: str = "not-found"
+
+
+class StatusConflict(AppError):
+    """The case is not in a status that allows the requested action."""
+
+    problem_type: str = "conflict-status"
+
+
+class RequestInvalid(AppError):
+    """Semantically invalid request (e.g. missing reason codes)."""
+
+    problem_type: str = "validation-failed"
