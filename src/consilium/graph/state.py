@@ -25,7 +25,7 @@ from consilium.schemas.base import Strict
 from consilium.schemas.context import GlobalContext, RoleContext
 from consilium.schemas.enums import CaseStatus, Laterality, Role
 from consilium.schemas.note import ClinicalNote, NoteExtraction
-from consilium.schemas.vision import CADResult
+from consilium.schemas.vision import CADResult, RawVisionOutput
 
 __all__ = ["AgentRunRecord", "CaseState", "FailureRecord"]
 
@@ -79,6 +79,9 @@ class CaseState(Strict):
     note: ClinicalNote | None = None
     extraction: NoteExtraction | None = None
     cad: CADResult | None = None
+    # transient: the pin-verified endpoint payload, drained by the runner into
+    # cad_results.raw_vision_json (masks feed the review overlay); never in state_json
+    raw_vision: RawVisionOutput | None = Field(default=None, exclude=True)
     global_ctx: GlobalContext | None = None
     role_contexts: dict[Role, RoleContext] = Field(default_factory=dict)
     sub_reports: dict[Role, SubReport] = Field(default_factory=dict)
