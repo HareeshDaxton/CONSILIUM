@@ -1,8 +1,9 @@
 # CONSILIUM local stack (ARCHITECTURE.md §14, dev topology).
-# Services: api, worker, postgres, minio (+ bucket init), fake-vision.
+# Services: api, worker, frontend, postgres, minio (+ bucket init), fake-vision.
 # Langfuse self-host is OPTIONAL and heavyweight (ClickHouse + Redis + blob —
 # check current docs, AGENTS.md §18); a commented profile block is at the bottom.
-# The frontend (React) joins in Phase 12 — no pipeline logic ever runs in it.
+# The frontend is the React review SPA (Vite dev server proxying /v1 to the api);
+# no pipeline or status logic ever runs in it.
 
 services:
   postgres:
@@ -99,6 +100,23 @@ services:
       fake-vision:
         condition: service_started
 
+  frontend:
+    # Dev topology (ARCHITECTURE.md §5.1): Vite dev server; /v1 is proxied to
+    # the api service so the browser talks to one origin (no CORS surface).
+    image: node:22-alpine
+    working_dir: /app
+    command: ["sh", "-c", "npm ci --no-audit --no-fund && npm run dev -- --host 0.0.0.0"]
+    environment:
+      VITE_API_PROXY: http://api:8000
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+    ports:
+      - "5173:5173"
+    depends_on:
+      api:
+        condition: service_started
+
   # ---------------------------------------------------------------------
   # OPTIONAL: Langfuse self-host (LLM observability, AGENTS.md §18).
   # Recent Langfuse versions need ClickHouse + Redis + blob storage beside
@@ -114,6 +132,7 @@ services:
   # ---------------------------------------------------------------------
 
 volumes:
+  frontend_node_modules:
   pgdata:
   miniodata:
   objects:
