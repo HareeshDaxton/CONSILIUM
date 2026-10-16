@@ -49,7 +49,7 @@ from consilium.schemas.agents import DirectorDraft
 from consilium.schemas.audit import Issue
 from consilium.schemas.enums import CaseStatus, Laterality
 from consilium.schemas.vision import RawVisionOutput
-from consilium.vision.overlay import render_overlay
+from consilium.vision.overlay import OverlayLayer, render_overlay
 
 router = APIRouter(tags=["cases"])
 
@@ -243,25 +243,28 @@ async def get_overlay(
     case_id: str,
     request: Request,
     _: Annotated[Identity, Depends(require_clinician)],
+    layer: Annotated[OverlayLayer, Query()] = OverlayLayer.COMPOSITE,
 ) -> Response:
     """Server-rendered PNG (disc cyan, cup magenta), cached in the object
-    store under ``sha256(case_id + mask RLEs)``. Served directly (no
-    presigned-URL facility in V1)."""
+    store under ``sha256(case_id + mask RLEs [+ layer])``. ``layer`` selects
+    the composite (default) or one stackable layer for the UI's toggles.
+    Served directly (no presigned-URL facility in V1)."""
     deps = _deps(request)
     persisted, state = await _load(deps, case_id)
     cad = await deps.repos.cad_load(persisted.id)
     if cad is None or "disc_mask_rle" not in cad.raw_vision_json or state.image_uri is None:
         raise StatusConflict("OVERLAY_NOT_AVAILABLE")
     raw = RawVisionOutput.model_validate(cad.raw_vision_json, strict=False)
-    key = hashlib.sha256(
-        f"{persisted.id}|{raw.disc_mask_rle}|{raw.cup_mask_rle}".encode()
-    ).hexdigest()
+    material = f"{persisted.id}|{raw.disc_mask_rle}|{raw.cup_mask_rle}"
+    if layer != OverlayLayer.COMPOSITE:  # composite keeps its original cache key
+        material += f"|{layer.value}"
+    key = hashlib.sha256(material.encode()).hexdigest()
     uri = deps.objects.uri_for(key, prefix=OVERLAY_PREFIX)
     if await deps.objects.exists(uri):
         png = await deps.objects.load(uri)
     else:
         image = await deps.objects.load(state.image_uri)
-        png = await asyncio.to_thread(render_overlay, image, raw)
+        png = await asyncio.to_thread(render_overlay, image, raw, layer=layer)
         await deps.objects.put(png, prefix=OVERLAY_PREFIX, key=key)
     return Response(
         png,
