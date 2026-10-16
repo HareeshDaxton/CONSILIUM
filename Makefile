@@ -2,7 +2,8 @@
 # All Python tooling runs through `uv run` so it works the same locally and in CI.
 
 .PHONY: setup lint typecheck imports test test-live ci schema-check schema-snapshot \
-        eval-smoke eval-full migrate serve up down
+        eval-smoke eval-full migrate serve up down \
+        ui-install ui-check ui-dev dev-token dev-ui-stack ui-e2e
 
 setup:          ## Install all deps and dev tooling
 	uv sync --all-groups
@@ -48,3 +49,21 @@ up:             ## docker compose stack: api, worker, postgres, minio, fake-visi
 
 down:           ## tear down the compose stack (volumes kept; use `docker compose down -v` to wipe)
 	docker compose down
+
+ui-install:     ## Frontend deps (exact versions from package-lock.json)
+	cd frontend && npm ci
+
+ui-check:       ## Frontend gate: typecheck + unit tests (offline, mocked API) + production build
+	cd frontend && npm run typecheck && npm test && npm run build
+
+ui-dev:         ## Review UI dev server on :5173 (proxies /v1 to the API on :8000)
+	cd frontend && npm run dev
+
+dev-token:      ## Mint a DEV clinician token for the review UI (HS256, local stack only)
+	uv run python scripts/dev_token.py --sub clin-1 --role clinician
+
+dev-ui-stack:   ## Offline dev stack for the UI: real API + worker + Postgres, canned LLM, seeded cases (:8000)
+	uv run python scripts/dev_ui_stack.py --reset --out frontend/e2e/.stack.json
+
+ui-e2e:         ## Playwright clinician walkthrough (needs compose Postgres; npx playwright install chromium once)
+	cd frontend && npm run e2e
