@@ -51,5 +51,5 @@ def settings() -> Settings:
         _env_file=None,
         OPENAI_API_KEY="sk-test-synthetic",
         DATABASE_URL="postgresql+asyncpg://consilium:consilium@localhost:5432/consilium_test",
-        JWT_SECRET="test-jwt-secret",
+        JWT_SECRET="test-jwt-secret-synthetic-32-bytes-min",
     )
