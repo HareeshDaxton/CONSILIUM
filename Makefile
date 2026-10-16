@@ -40,8 +40,8 @@ eval-full:      ## Full ablation, live LLM + dev endpoint (Phase 13)
 migrate:        ## Alembic migrations (Phase 9)
 	@echo "migrate: not implemented until Phase 9" && exit 1
 
-serve:          ## API dev server (Phase 11)
-	@echo "serve: not implemented until Phase 11" && exit 1
+serve:          ## API dev server (app factory; env from .env)
+	uv run uvicorn consilium.api.main:create_app --factory --reload
 
 up:             ## docker compose stack: api, worker, postgres, minio, fake-vision
 	docker compose up -d --build
