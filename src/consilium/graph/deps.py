@@ -90,15 +90,15 @@ class Deps:
     budget: TokenBudget | None = None
 
 
-def build_fake_deps(
+def _assemble(
     settings: Settings,
     *,
     llm: LLMClient,
     vision: VisionClient,
-    image_store: ImageStore | None = None,
-    rails: GuardedRails | None = None,
+    image_store: ImageStore,
+    rails: GuardedRails,
+    fixture: str | None,
 ) -> Deps:
-    """Fully offline deps: fake clients, committed configs, no network (§20)."""
     loader = PromptLoader()
     return Deps(
         settings=settings,
@@ -109,37 +109,77 @@ def build_fake_deps(
         phi_policy=load_phi_patterns(),
         extractor_prompt=load_extractor_prompt(),
         vision=vision,
-        image_store=image_store or MemoryImageStore(),
+        image_store=image_store,
         llm=llm,
-        specialists=build_specialists(settings=settings, llm=llm, fixture="default"),
+        specialists=build_specialists(settings=settings, llm=llm, fixture=fixture),
         director=Director(
             prompt=loader.load("director", "v1"),
             llm=llm,
             model=settings.llm_model_director,
             temperature=settings.llm_temperature_director,
-            fixture="default",
+            fixture=fixture,
         ),
         critic=Critic(
             prompt=loader.load("critic", "v1"),
             llm=llm,
             model=settings.llm_model_critic,
             temperature=settings.llm_temperature_critic,
-            fixture="default",
+            fixture=fixture,
         ),
         output_policy=load_output_rail(),
-        # offline: deterministic fake engine that never triggers unless told to
-        rails=rails or GuardedRails(FakeRailEngine()),
+        rails=rails,
     )
 
 
-def build_prod_deps(settings: Settings) -> Deps:
-    """Real clients (OpenAI + HTTP vision endpoint). Constructed HERE only."""
+def build_fake_deps(
+    settings: Settings,
+    *,
+    llm: LLMClient,
+    vision: VisionClient,
+    image_store: ImageStore | None = None,
+    rails: GuardedRails | None = None,
+) -> Deps:
+    """Fully offline deps: fake clients, committed configs, no network (§20)."""
+    return _assemble(
+        settings,
+        llm=llm,
+        vision=vision,
+        image_store=image_store or MemoryImageStore(),
+        # offline: deterministic fake engine that never triggers unless told to
+        rails=rails or GuardedRails(FakeRailEngine()),
+        fixture="default",
+    )
+
+
+def build_prod_deps(settings: Settings, *, image_store: ImageStore) -> Deps:
+    """Real clients (OpenAI + HTTP vision endpoint + NeMo). Constructed HERE only
+    (ARCHITECTURE.md §5.2). Fails closed on any missing configuration."""
+    from consilium.guardrails.nemo_wiring import NemoRailEngine
     from consilium.llm.client_openai import OpenAILLMClient
     from consilium.vision.client_http import HttpVisionClient
 
-    # P11: rails=GuardedRails(NemoRailEngine()) — needs the optional
-    # nemoguardrails dependency (Kimi.md 10.2 manual steps).
-    raise NotImplementedError(
-        "prod deps land with the API worker (P11): "
-        f"{OpenAILLMClient.__name__} + {HttpVisionClient.__name__} wiring"
+    if settings.vision_client_mode != "http":
+        raise ValueError("prod deps require VISION_CLIENT_MODE=http (fake is tests/dev only)")
+    assert settings.vision_endpoint_url is not None  # enforced by Settings validator
+    assert settings.vision_endpoint_token is not None
+    assert settings.vision_pinned_revision is not None
+    if settings.vision_pinned_revision != load_models_config().endpoint.pinned_revision:
+        raise ValueError("VISION_PINNED_REVISION != configs/models.yaml pin (fail closed)")
+    vision = HttpVisionClient(
+        endpoint_url=settings.vision_endpoint_url,
+        token=settings.vision_endpoint_token.get_secret_value(),
+        pinned_revision=settings.vision_pinned_revision,
+    )
+    # Model rail: real NeMo unless explicitly set to the dev pass-through
+    # engine (deterministic input/output checks run regardless — §14).
+    engine = (
+        NemoRailEngine() if settings.rails_engine == "nemo" else FakeRailEngine()
+    )  # passthrough
+    return _assemble(
+        settings,
+        llm=OpenAILLMClient(settings.openai_api_key.get_secret_value()),
+        vision=vision,
+        image_store=image_store,
+        rails=GuardedRails(engine),
+        fixture=None,
     )
