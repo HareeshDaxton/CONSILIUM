@@ -21,7 +21,7 @@ import numpy as np
 
 from consilium.core.errors import VisionFailure
 from consilium.schemas.enums import Laterality, QualityFlag, ScreeningTier
-from consilium.schemas.vision import CADResult, ClassifierOutput
+from consilium.schemas.vision import CADResult, ClassifierOutput, RawVisionOutput
 from consilium.vision import cdr as cdr_mod
 from consilium.vision import postprocess, quality, rle
 from consilium.vision.calibration import calibrate
@@ -52,6 +52,29 @@ async def run(
     laterality: Laterality,
     retry: RetryPolicy | None = None,
 ) -> CADResult:
+    cad, _ = await run_detailed(
+        image_bytes,
+        client=client,
+        thresholds=thresholds,
+        models=models,
+        laterality=laterality,
+        retry=retry,
+    )
+    return cad
+
+
+async def run_detailed(
+    image_bytes: bytes,
+    *,
+    client: VisionClient,
+    thresholds: Thresholds,
+    models: ModelsConfig,
+    laterality: Laterality,
+    retry: RetryPolicy | None = None,
+) -> tuple[CADResult, RawVisionOutput]:
+    """Like ``run`` but also returns the pin-verified endpoint output, which
+    is persisted as ``cad_results.raw_vision_json`` (AGENTS.md §16) and feeds
+    the review overlay. Numbers still come only from the in-repo CADResult."""
     # 1. Client-side precheck (cheap; keeps garbage off the endpoint).
     quality.precheck_image_bytes(image_bytes, thresholds.image_precheck)
 
@@ -96,7 +119,7 @@ async def run(
     p_calibrated = calibrate(raw.p_raw, models.calibration.temperature)
     tier = ScreeningTier(thresholds.screening_tiers.tier_for(p_calibrated))
 
-    return CADResult(
+    cad = CADResult(
         quality=image_quality,
         classifier=ClassifierOutput(
             p_raw=raw.p_raw,
@@ -118,6 +141,7 @@ async def run(
         ),
         laterality=laterality,
     )
+    return cad, raw
 
 
 def synthetic_fundus_bytes(size: int = 256) -> bytes:
