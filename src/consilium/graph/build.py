@@ -32,7 +32,13 @@ from consilium.graph.state import CaseState, FailureRecord
 from consilium.persistence.repositories import Repositories, RepoTx
 from consilium.schemas.enums import CaseStatus, Laterality
 
-__all__ = ["GraphRunner", "NodeHook"]
+__all__ = ["INTAKE_NODES", "GraphRunner", "NodeHook"]
+
+# Nodes the API runs synchronously before enqueueing (ARCHITECTURE.md §5.2):
+# the raw note exists only in the submitting process and is never persisted
+# (I-6), so the input rail must redact + encrypt-store it BEFORE the case is
+# handed to a worker. Everything after runs in the worker via ``resume``.
+INTAKE_NODES: tuple[str, ...] = ("precheck_image", "input_rail")
 
 # Called after a node's transaction COMMITS — tests use it to simulate a crash.
 NodeHook = Callable[[str, CaseState], None]
@@ -140,6 +146,15 @@ class GraphRunner:
         final: CaseState = result["state"]
         return final
 
+    async def run_intake(self, state: CaseState) -> CaseState:
+        """Run only the intake prefix (precheck + input rail), persisting each
+        node exactly like ``run``. Returns at the first non-intake successor
+        or a terminal status."""
+        while (nxt := edges.next_node(state)) in INTAKE_NODES:
+            assert nxt is not None
+            state = (await self._wrap(NODES[nxt])({"state": state}))["state"]
+        return state
+
     async def resume(self, case_id: str) -> CaseState:
         """Crash-resume: rehydrate from Postgres and continue at the successor
         of the last persisted node. Terminal cases are returned unchanged."""
@@ -195,7 +210,7 @@ class GraphRunner:
                     error=run.error,
                 )
             await self._write_transition(tx, name, out)
-        return out.model_copy(update={"agent_runs_pending": ()})
+        return out.model_copy(update={"agent_runs_pending": (), "raw_vision": None})
 
     @staticmethod
     async def _write_transition(tx: RepoTx, name: str, out: CaseState) -> None:
@@ -286,7 +301,12 @@ class GraphRunner:
             await tx.cad_save(
                 case_id=case_id,
                 cad_json=out.cad.model_dump(mode="json"),
-                raw_vision_json={"p_raw": out.cad.classifier.p_raw, "endpoint_revision": pinned},
+                # full RawVisionOutput (§16) when available; masks feed the overlay
+                raw_vision_json=(
+                    out.raw_vision.model_dump(mode="json")
+                    if out.raw_vision is not None
+                    else {"p_raw": out.cad.classifier.p_raw, "endpoint_revision": pinned}
+                ),
                 classifier_version=out.cad.classifier.model_version,
                 segmenter_version=out.cad.segmenter_version,
                 endpoint_revision=pinned,
