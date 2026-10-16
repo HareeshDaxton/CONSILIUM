@@ -11,7 +11,7 @@ anything only the user can do (account registrations, dataset downloads, API
 keys into `.env`, tool installs, OS policy changes). If the list is empty,
 the section needed no manual work.
 
-Current position: **PHASE 11 COMPLETE (11.1–11.4) — FastAPI app + JWT auth + RFC 7807, cases endpoints + Postgres job queue/worker, clinician review service + report, offline e2e vertical slice (773 passed, 0 skipped). Next: Phase 12 — React review UI.**
+Current position: **PHASE 12 COMPLETE (12.1–12.4) — React review UI: scaffold + in-memory auth + case list/detail, review screen (DraftView, inline issues, UNVERIFIED banner, disagreements), server-rendered overlay layers + edit-diff form + reason codes + report page, Playwright clinician walkthrough on the offline dev stack (804 backend + 59 UI + 7 browser tests). Next: Phase 13 — Evaluation.**
 
 ---
 
@@ -3171,3 +3171,413 @@ report with attribution; full audit trail. Open human decisions: (1) self-
 REJECT policy; (2) freeze `0001_initial` to explicit DDL before any 0002;
 (3) S3 object-store binding (V1 = file://); (4) compose stack needs an
 OPENAI key + `make migrate` to serve; (5) earlier open items from Phase 10.
+
+---
+
+## Phase 12 — React review UI
+
+### Section 12.1 — Scaffold + auth + case list ✅ DONE
+
+**Goal:** Vite + React + TypeScript app; typed `api/client.ts` (202,
+problem+json); login (token in memory, not localStorage); `/cases` list with
+status badges + queue filters; `/cases/:id` detail (CAD summary, note facts,
+timeline). Exit: list + detail render against the dev API.
+
+**What was done — backend (read-only additions; no status writes)**
+- `src/consilium/api/routes/cases.py` (CHANGED) — `GET /v1/cases` (newest
+  first, repeated `status=` filter = the UI's queue views, `limit` 1..200;
+  clinicians see all cases, a submitter-only caller sees only cases they
+  created); `GET /v1/cases/{id}/timeline` (any authenticated role, like
+  `GET /v1/cases/{id}`: audit `event`/`actor`/`at` ONLY — `detail_json` is
+  never projected); `GET /v1/cases/{id}/facts` (clinician only: C_global fact
+  sheet incl. de-identified note facts; 409 `FACTS_NOT_AVAILABLE` before
+  CONTEXT_BUILT).
+- `src/consilium/api/routes/me.py` (NEW) — `GET /v1/me` → verified `sub` +
+  sorted roles. The UI validates a token with it and never trusts its own
+  decode of the JWT. `api/main.py` (CHANGED) wires it.
+- `src/consilium/api/schemas_http.py` (CHANGED) — `MeView`, `CaseListItem`,
+  `CaseListView`, `TimelineEvent`, `FactView`.
+- `src/consilium/persistence/repositories.py` (CHANGED) — `cases_list`
+  (status/owner filters), `audit_events` (event/actor/at projection),
+  `PersistedAuditEvent`.
+- `scripts/dev_token.py` (NEW) — mints an HS* DEV token (`--sub`, `--role`
+  repeatable, `--ttl-min`); secret = `JWT_SECRET` env, else the compose dev
+  default (warns on stderr). Prod tokens come from the IdP.
+
+**What was done — frontend (`frontend/`)**
+- `package.json` + `package-lock.json` — exact pins: react/react-dom 18.3.1
+  (ARCHITECTURE §3 says React 18), react-router-dom 6.30.1,
+  @tanstack/react-query 5.80.7; dev: vite 6.3.5, @vitejs/plugin-react 4.5.2,
+  typescript 5.8.3, vitest 3.2.4, jsdom 26.1.0, @testing-library/{react
+  16.3.0, user-event 14.6.1, jest-dom 6.6.3}. Scripts: dev/build/typecheck/test.
+- `tsconfig.json` (strict + noUncheckedIndexedAccess), `vite.config.ts` (dev
+  proxy `/v1` + `/healthz` → `VITE_API_PROXY` or localhost:8000 — one origin,
+  no CORS surface; vitest jsdom config), `index.html` (noindex).
+- `src/api/types.ts` — wire types mirroring `schemas_http.py`,
+  `review/service.py`, `DirectorDraft`/`Issue`; `src/api/client.ts` — typed
+  fetch wrapper: bearer from the in-memory session, RFC 7807 → `ApiError`
+  (server `reason` code), synthetic problem for non-JSON errors,
+  `NETWORK_ERROR`, 401 → `onUnauthorized` (except the login probe), 202
+  submit with `Idempotency-Key`; `src/api/queries.ts` — TanStack Query hooks,
+  fixed 10 s polling applied unconditionally (no status inspection).
+- `src/auth/session.tsx` — token in a React ref only (never
+  localStorage/sessionStorage/cookie); `login()` = `GET /v1/me` probe;
+  `logout(reason)`; `isClinician` from server roles. `src/auth/RequireAuth.tsx`.
+- `src/pages/Login/LoginPage.tsx` (paste token; shows "Session ended
+  (TOKEN_EXPIRED)"), `src/pages/CaseList/{CaseListPage.tsx,filters.ts}`
+  (queue tabs = server-side status filters; UNVERIFIED tag),
+  `src/pages/CaseDetail/CaseDetailPage.tsx` (status badge, failure
+  type/reason, CAD summary, note facts table, timeline; "Open review" /
+  "Approved report" links shown to every clinician — existence is answered by
+  the server's 409, not inferred from status).
+- `src/components/{Layout,StatusBadge,ProblemMessage,CadSummaryCard,FactsTable,Timeline}.tsx`,
+  `src/lib/format.ts` (CAD values displayed exactly as served, I-1; note free
+  text rendered as plain text, marked untrusted, I-7), `src/styles.css`
+  (light/dark tokens), `src/App.tsx` (routes; no retry on 4xx), `src/main.tsx`.
+- Tests: `src/test/{setup.ts,mockApi.ts,renderApp.tsx}` (offline fake API
+  keyed by "METHOD /path"; sign-in goes through the real Login page);
+  `api/client.test.ts` (8), `pages/Login/LoginPage.test.tsx` (4, incl. token
+  absent from local/sessionStorage/cookies), `pages/CaseList/CaseListPage.test.tsx`
+  (2), `pages/CaseDetail/CaseDetailPage.test.tsx` (3, incl. submitter gets no
+  facts request / review links).
+- `src/test/fixtures/*.json` — generated from the real offline graph context
+  (synthetic); `tests/contract/test_frontend_fixtures.py` (NEW) validates
+  EVERY fixture against the API's Pydantic view model (unmapped fixture =
+  failure), so TS-type/fixture drift from the server contract fails CI.
+
+**Wiring:** `docker-compose.yml` (CHANGED) — `frontend` service (node:22-alpine,
+`npm ci && npm run dev`, `VITE_API_PROXY=http://api:8000`, :5173, named
+node_modules volume); `Makefile` (CHANGED) — `ui-install`, `ui-check`,
+`ui-dev`, `dev-token`; `.github/workflows/ci.yml` (CHANGED) — `frontend` job
+(npm ci → typecheck → vitest → build). `.dockerignore` already excluded
+`frontend/node_modules` + `dist`.
+
+**Tests (backend):** `tests/integration/test_api_reads.py` (NEW, 5 — list
+order/status filter/submitter scope/limit; 422 bad params + 401; timeline
+order + no detail + 404; facts 409→clinician-only→sources; /me);
+`tests/unit/test_dev_token.py` (NEW, 2); contract fixtures (7).
+
+**Verified:**
+- `cd frontend && npx tsc --noEmit` → clean; `npx vitest run` → **17 passed**;
+  `npx vite build` → OK (215 kB JS / 69 kB gzip).
+- `rtk uv run ruff check .` clean; `ruff format --check .` → 203 formatted;
+  `mypy --strict src/` → no issues (97 files); `lint-imports` 8 kept, 0
+  broken; `schema_snapshot.py --check` up to date (23 models).
+- `rtk uv run pytest -m "not live" -q` → **787 passed**, 1 deselected,
+  coverage 92% (compose Postgres up; every integration test ran).
+- `docker compose config` valid (with a dummy FIELD_ENCRYPTION_KEY).
+
+**Deviation (honest):** the exit says "against the dev API" — in 12.1 the UI
+was verified against the offline mock API (fixtures validated against the
+real view models) and the new endpoints against the real FastAPI app +
+Postgres; the browser-against-live-API run is part of 12.4. `npm install`
+reported esbuild's postinstall as not allow-listed; build/test work anyway
+(platform binary via optional dependency).
+
+**Deferred / not verified:** no list pagination cursor (limit only, max 200);
+no token refresh (V1 dev tokens / IdP tokens; expiry → back to /login).
+**CLINICAL-REVIEW items:** none (submitter-only callers listing only their own
+cases is an access-control default, not a clinical decision — flag if the team
+wants submitters to see the whole queue).
+**MANUAL STEPS FOR THE HUMAN (12.1):** run `cd frontend && npm ci` once (or
+`make ui-install`); to approve esbuild's install script run
+`npm approve-scripts esbuild` (optional).
+
+### Section 12.2 — Review screen: draft + issues + banner ✅ DONE
+
+**Goal:** `/cases/:id/review`: DraftView (claims as blocks with evidence chips
+from the evidence map), unresolved critic issues as inline red highlights
+keyed by `claim_id`, UNVERIFIED banner (red, prominent) when unverified,
+disagreements rendered visibly. Exit: renders verified + unverified drafts
+correctly against fixtures.
+
+**What was done — files (frontend only; no backend change)**
+- `src/components/DraftView/DraftView.tsx` (NEW) — read-only render of the
+  served draft: impression, claims, disagreements, recommendations (with
+  `triggered_by` chips + "basis: model_knowledge — for clinician judgement"),
+  limitations. Open issues grouped by `claim_id`; an issue with no claim, or
+  naming a claim not in the draft, is listed at draft level (never dropped).
+- `src/components/DraftView/ClaimBlock.tsx` (NEW) — id, kind, source-role
+  tags, text, numeric claims show `value … must equal <numeric_ref>`, evidence
+  chips; flagged claims get a red border/background + their issue list
+  (`data-flagged` for tests).
+- `src/components/DraftView/EvidenceChip.tsx` (NEW) — `fact.id = value unit`
+  from the server's evidence map; a ref missing from the map renders as "not
+  in fact sheet" (shown, not guessed).
+- `src/components/DraftView/UnverifiedBanner.tsx` (NEW) — red `role="alert"`
+  banner with the SERVER's banner text + open-issue count and the rule that it
+  cannot become final without fixes resolving every flagged claim.
+- `src/components/DraftView/IssueList.tsx` (NEW) — type, detail, raised_by,
+  evidence ids.
+- `src/components/DraftView/DisagreementList.tsx` (NEW) — every position with
+  its role + resolution (dissent preserved, AGENTS.md §12).
+- `src/pages/ReviewScreen/ReviewScreen.tsx` (NEW) — loads case + draft; draft
+  existence answered by the server (409 `DRAFT_NOT_AVAILABLE` / 403 shown
+  verbatim), not inferred from status.
+- `src/api/queries.ts` (CHANGED) — `useDraft` (deliberately NOT polled: a
+  silent refresh would swap the base revision under an editing clinician).
+- `src/App.tsx` (CHANGED) — `/cases/:id/review` route. `src/styles.css`
+  (CHANGED) — banner, claim/flagged, chips, issues, disagreement styles.
+- Fixtures `src/test/fixtures/draft_verified.json` / `draft_unverified.json`
+  (NEW) — built from the real offline graph context + `clean_draft`, the
+  graph_kit REJECT issue on c2, one claim-less issue, one 2-role disagreement;
+  `tests/contract/test_frontend_fixtures.py` (CHANGED) maps both to `DraftView`.
+- Tests: `src/components/DraftView/DraftView.test.tsx` (NEW, 8 — verified: no
+  banner, chips with values, recommendations, limitations; unverified: banner
+  text + count, exactly the issue-named claims flagged, draft-level issue,
+  every disagreement position; plain-text rendering of hostile markup;
+  unknown-claim issue falls back to draft level; missing evidence marked);
+  `src/pages/ReviewScreen/ReviewScreen.test.tsx` (NEW, 4 — verified,
+  unverified, 409 reason, 403 reason).
+
+**Verified:**
+- `npx tsc --noEmit` clean; `npx vitest run` → **29 passed** (6 files);
+  `npx vite build` OK (220 kB / 71 kB gzip).
+- `rtk uv run pytest -m "not live" -q` → **789 passed**, 1 deselected
+  (+2 = the two new fixture-contract cases); ruff/format clean (203 files);
+  mypy --strict clean (97 files); lint-imports 8 kept / 0 broken; schema
+  snapshots up to date (23 models).
+
+**Deferred / not verified:** rendering against a LIVE API draft is exercised
+in 12.4 (here: contract-validated fixtures). Markdown rendering of draft text
+(ARCHITECTURE §5.1 sketch says "Markdown-rendered") is deliberately NOT done —
+draft text is plain text to keep any model-written markup inert.
+**CLINICAL-REVIEW items:** none.
+**MANUAL STEPS FOR THE HUMAN (12.2):** none.
+
+### Section 12.3 — Mask overlay viewer + edit-diff form ✅ DONE
+
+**Goal:** MaskOverlayViewer (server-rendered overlay PNG, disc/cup toggles,
+opacity slider, no client-side mask math); EditDiffForm (field-level editing
+of impression/claims/recommendations/limitations; client diff for UX; submits
+full edited draft + base_revision); ReasonCodePicker (multi-select, required,
+OTHER→text). Exit: edit-and-diff flow submits; server accepts/rejects per
+review rules.
+
+**Key decision — overlay layers rendered server-side:** one composite PNG
+cannot be toggled per structure without decoding colours/masks in the
+browser. `GET /v1/cases/{id}/overlay` gained `?layer=composite|image|disc|cup`
+(default `composite`, byte-identical to before). `image` = fundus at mask
+resolution; `disc`/`cup` = transparent RGBA with only that outline opaque. The
+UI stacks three `<img>` and toggles/fades them with CSS. A unit test proves
+image+disc+cup stack back to exactly the composite.
+
+**What was done — backend**
+- `src/consilium/vision/overlay.py` (CHANGED) — `OverlayLayer` enum;
+  `render_overlay(..., layer=)`; `_outline_layer` (RGBA); `_png` helper.
+- `src/consilium/api/routes/cases.py` (CHANGED) — `layer` query param
+  (422 on unknown); cache key `sha256(case|disc_rle|cup_rle[|layer])` —
+  composite keeps its original key; per-layer ETag.
+- `tests/unit/test_vision_overlay.py` (NEW, 8) — default = composite; every
+  layer at mask resolution; outline layers alpha ∈ {0,255} and only their
+  colour; layers stack to the composite; image layer has no outlines.
+- `tests/integration/test_api_reads.py` (CHANGED, +1) — 4 distinct cached
+  objects/ETags, modes RGB/RGBA/RGBA, explicit `composite` == default, 422.
+
+**What was done — frontend**
+- `src/components/MaskOverlayViewer/MaskOverlayViewer.tsx` (NEW) — fetches
+  the three layers (bearer → blob → object URL, revoked on change/unmount),
+  disc/cup checkboxes (`hidden`), outline-opacity slider (CSS opacity on the
+  outline layers only), colour legend. No canvas.
+- `src/components/EditDiffForm/diff.ts` (NEW) — `EditState`,
+  `initialEditState`, `buildEditedDraft` (order + every non-text field kept:
+  evidence_refs, numeric_value/ref, kinds, roles, disagreements, revision —
+  CAD numbers are not editable, I-1), `diffDraft` (server-style paths:
+  `impression`, `claims[id=c2].text`, `claims[id=c2]` removed,
+  `recommendations[i].text`, `limitations[i]`, `limitations[+]`),
+  `blankFields`.
+- `src/components/EditDiffForm/EditDiffForm.tsx` (NEW) — editors for
+  impression, each claim (edit/remove/restore), recommendations
+  (edit/remove), limitations (edit/remove/add); side-by-side diff table (AI
+  text | clinician edit); reset; reason codes + comment; actions. Submits
+  `{action, base_revision, edited_draft?, reason_codes?, comment?}` — never a
+  status. Buttons are enabled from FORM state only: Approve needs no edits and
+  no codes (it would silently drop them); Approve-with-edits needs ≥1 change,
+  ≥1 code, OTHER→text, no blank text; Reject needs codes and no pending
+  edits. Case status/unverified are NOT consulted: plain Approve on an
+  UNVERIFIED draft is sent and the server's 409 is shown verbatim.
+- `src/components/ReasonCodePicker/ReasonCodePicker.tsx` (NEW) — renders the
+  server's closed list (`/v1/meta/reason-codes`), multi-select, OTHER →
+  required comment hint (`aria-invalid`).
+- `src/pages/Report/ReportPage.tsx` (NEW) — `/cases/:id/report`: screening
+  notice, status, eye, version, approved_by/at, action, draft revision, reason
+  codes, amends link, report body; 409 REPORT_NOT_APPROVED shown as-is.
+- `src/pages/ReviewScreen/ReviewScreen.tsx` (CHANGED) — overlay | draft
+  layout + EditDiffForm (keyed by revision); after submit navigates by the
+  ACTION taken (reject → detail, approvals → report), not by status.
+- `src/api/client.ts` (CHANGED) — `OverlayLayer`, `getOverlay(id, layer)`.
+  `src/api/queries.ts` (CHANGED) — `useReport`, `useReasonCodes`,
+  `useOverlayLayer`, `useReviewMutation` (on success re-reads every case query
+  from the server; no local status patching). `src/App.tsx` (report route),
+  `src/styles.css` (viewer/diff/reasons/report).
+- Fixtures (NEW): `reason_codes.json` (from `REASON_CODE_DESCRIPTIONS`),
+  `report.json` (`ReportView`), `review_result.json` (`ReviewResult`);
+  `tests/contract/test_frontend_fixtures.py` (CHANGED) maps them + asserts
+  the reason-code fixture equals the closed `ReasonCode` taxonomy in order.
+- `src/test/setup.ts` (CHANGED: object-URL stub for jsdom),
+  `src/test/renderApp.tsx` (CHANGED: `renderWithApi`).
+- Tests (NEW): `diff.test.ts` (5), `EditDiffForm.test.tsx` (8 — side-by-side
+  diff + reset; full-draft payload with base_revision/codes, untouched claims
+  intact, no `status` key; OTHER→comment; blank-text block; plain approve
+  payload; reject payload; UNVERIFIED approve NOT pre-empted → server 409
+  shown; unresolved edit → server 409 UNVERIFIED_ISSUES_OPEN shown),
+  `ReasonCodePicker.test.tsx` (3), `MaskOverlayViewer.test.tsx` (4 — three
+  layer requests, independent toggles, opacity on outlines only, no canvas +
+  409 shown), `ReportPage.test.tsx` (2); `ReviewScreen.test.tsx` (+1: edit →
+  code → approve-with-edits → report page).
+
+**Verified:**
+- `npx tsc --noEmit` clean; `npx vitest run` → **52 passed** (11 files);
+  `npx vite build` OK (236 kB / 74 kB gzip).
+- `rtk uv run pytest -m "not live" -q` → **802 passed**, 1 deselected
+  (+8 overlay unit, +1 overlay integration, +4 fixture contract); ruff/format
+  clean (204 files); mypy --strict clean (97 files); lint-imports 8 kept / 0
+  broken; schema snapshots up to date (23 models).
+
+**Exit status (honest):** "server accepts/rejects per review rules" — the UI
+side is proven against the mocked API (payload shape + verbatim refusals) and
+the server side by the 11.3 review-service tests on the same command shape;
+the two together in a real browser against the real server are run in 12.4.
+**Deferred / not verified:** editing disagreement resolutions and adding new
+claims/recommendations is not offered (claims need evidence refs the
+clinician cannot pick from a fact list yet) — clinicians can edit/remove
+existing ones and add limitations.
+**CLINICAL-REVIEW items:** whether clinicians need to ADD claims/recommendations
+(with evidence picking) in V1, or edit disagreement resolutions.
+**MANUAL STEPS FOR THE HUMAN (12.3):** none.
+
+### Section 12.4 — Full workflow validation ✅ DONE
+
+**Goal:** clinician walkthrough on the dev stack: list → open case → inspect
+overlay → edit → reason codes → approve-with-edits → view approved report;
+reject path; unverified-draft fix-and-approve path. Exit: workflow completed
+end-to-end without touching the DB by hand; no status logic anywhere in the
+frontend (checked by review).
+
+**What was done — files**
+- `scripts/dev_ui_stack.py` (NEW) — offline dev stack in one process: REAL
+  FastAPI app (auth, RFC 7807, review service) + REAL job queue/worker +
+  `HttpVisionClient` over HTTP to the fake-vision app (in-process ASGI, pin
+  check) + compose Postgres (own DB `consilium_dev_ui`; `--reset` wipes and
+  re-migrates) + `FileObjectStore` under gitignored `data/dev_ui_objects`;
+  canned LLM from the offline graph kit (no network). Seeds four synthetic
+  cases THROUGH THE HTTP API (multipart POST /v1/cases, Idempotency-Key
+  `dev-ui-<scenario>`) + a per-scenario worker: `approve`/`reject` →
+  PENDING_REVIEW, `unverified` (critic always rejects c2) → NEEDS_ATTENTION +
+  UNVERIFIED, `failed` (pin mismatch) → FAILED. Mints dev tokens
+  (`dev-clinician`, `dev-clinician-2`, `dev-submitter`, and `dev-submitter`
+  with the clinician role for the self-approval check); `--out` writes tokens
+  + case IDs as JSON. Then serves uvicorn + the live worker.
+- `tests/integration/test_dev_ui_stack.py` (NEW, 2) — seeding yields exactly
+  the four states (created_by = submitter; failure type
+  VISION_REVISION_MISMATCH) and is idempotent (re-seed → same IDs, 4 cases);
+  dev tokens verify; self-approval identity encoded.
+- `frontend/playwright.config.ts` (NEW) — starts the dev stack (`--reset`,
+  API :8765) and Vite (:5199, proxy → :8765), so a running compose stack is
+  never touched; serial, 1 worker, Chromium.
+- `frontend/e2e/walkthrough.spec.ts` (NEW, 7 tests, real browser):
+  (1) token in memory only: local/sessionStorage/cookie clean; reload signs
+  out. (2) review queue lists approve/reject/unverified (UNVERIFIED + NEEDS
+  ATTENTION on its row), failed not in it; Failed queue → detail shows
+  VISION_REVISION_MISMATCH. (3) self-approval: submitter+clinician identity →
+  Approve → `403 · SELF_APPROVAL` shown. (4) list → case detail (CAD summary,
+  note.age, timeline) → Open review → the three overlay layers decode
+  (naturalWidth > 0), disc toggle off/on, opacity 50% → edit c2 → one diff
+  row `claims[id=c2].text` → TONE_OR_WORDING → Approve with edits → report:
+  screening notice, `dev-clinician` attribution, reason code, APPROVED WITH
+  EDITS, Version 1, edited text. (5) reject: Reject disabled until a code →
+  FACTUAL_ERROR_CAD → REJECTED + `review.reject` in the timeline → report 409
+  REPORT_NOT_APPROVED → re-review Approve → 409 CASE_NOT_REVIEWABLE.
+  (6) unverified: banner + c2 flagged / c1 not → plain Approve → 409
+  UNVERIFIED_REQUIRES_EDITS → edit only c1 → 409 UNVERIFIED_ISSUES_OPEN →
+  reset, fix c2 (no numerals) → APPROVED WITH EDITS with
+  CLINICAL_INTERPRETATION. (7) a second clinician sees both approvals in the
+  Approved queue, reject absent. `afterAll` request spy: every non-GET is a
+  POST to `/v1/cases/{uuid}/review`; bodies only carry
+  {action, base_revision, edited_draft, reason_codes, comment}, never `status`.
+- `frontend/src/test/noStatusLogic.test.ts` (NEW, 6) — static guard over every
+  non-test source file (comments stripped): case-status literals only in
+  `api/types.ts`, `StatusBadge.tsx`, `CaseList/filters.ts`; no status-vs-literal
+  comparison anywhere (incl. `case_status`); `EditDiffForm` never reads
+  `case_status` / `.unverified` / `unverified_banner` / `.status`; only
+  `api/client.ts` POSTs, no PUT/PATCH/DELETE; no localStorage, sessionStorage,
+  cookie, indexedDB, innerHTML or dangerouslySetInnerHTML. Mutation-checked:
+  injecting `view.case_status === "NEEDS_ATTENTION"` into the form turns 3
+  rules red; restored → green.
+- **Bug found by the walkthrough and fixed:** `src/auth/RequireAuth.tsx`
+  remembered only `location.pathname`, so a deep link like
+  `/cases?queue=approved` lost its queue filter after sign-in. It now keeps
+  `pathname + search`; regression test in `CaseListPage.test.tsx` (red without
+  the fix, green with it).
+- `frontend/package.json` (CHANGED: `@playwright/test` 1.53.1 exact, `e2e`
+  script), `package-lock.json`; `frontend/README.md` (NEW: run, dev stack,
+  tokens, checks); `.gitignore` (CHANGED: `frontend/e2e/.stack.json`,
+  `test-results/`, `playwright-report/`); `Makefile` (CHANGED: `.PHONY` now
+  lists the ui-* targets — the 12.1 edit had silently not applied because the
+  Makefile uses CRLF; + `dev-ui-stack`, `ui-e2e`).
+
+**"No status logic" — manual review (in addition to the static guard):**
+every file under `frontend/src` was read for status use. Status values are
+only DISPLAYED (badge tone map, queue filter presets sent as GET query
+params, the server's `unverified` flag rendered as tag/banner). Navigation
+after a review follows the ACTION taken, not the returned status. Review and
+report links are offered to every clinician; existence is the server's 409.
+Polling is unconditional (no "is it done?" check). Review buttons depend only
+on form state (edits present, codes chosen, OTHER text, blank text). The
+server alone decides approvals (self-approval, UNVERIFIED resolution,
+immutability, stale revision); the walkthrough shows each refusal arriving
+from the server.
+
+**PHASE 12 EXIT VERIFICATION (run once at the end):**
+- `cd frontend && npx playwright test` → **7 passed** (Chromium, real API +
+  Postgres + worker); re-run → **7 passed** (reset + re-seed each run).
+- `npx tsc --noEmit` clean; `npx vitest run` → **59 passed** (12 files);
+  `npx vite build` OK.
+- `rtk uv run ruff check .` clean; `ruff format --check .` → 207 formatted;
+  `mypy --strict src/` → no issues (97 files); `lint-imports` 8 kept / 0
+  broken; `schema_snapshot.py --check` up to date (23 models).
+- `rtk uv run pytest -m "not live" -q` → **804 passed**, 1 deselected,
+  coverage 92%.
+
+**Deviations (honest):**
+- The "clinician walkthrough" was performed by an automated Playwright run in
+  a real browser, not by a human clinician. A human usability pass is still to
+  do (MANUAL STEPS).
+- "Dev stack" = `scripts/dev_ui_stack.py` (real API, worker, review service
+  and Postgres in one process; canned LLM; fake vision over HTTP), not the
+  docker compose containers: the compose api/worker need a real OPENAI key
+  (prod deps), unchanged from 11.4. The compose `frontend` service was
+  validated with `docker compose config` only, not brought up.
+- Playwright is not in CI (needs Postgres and a browser); CI runs the UI
+  typecheck/vitest/build job.
+
+**Deferred / not verified:** human usability and accessibility review
+(keyboard order, screen reader on the overlay); amendment (APPROVE_WITH_EDITS
+after approval, by a second clinician) is covered server-side (11.3) but not
+driven from the UI walkthrough; production static build served by nginx is
+not set up (dev topology only; ARCHITECTURE §5.1 lists it for prod).
+**CLINICAL-REVIEW items:** none new (12.3: adding claims/recommendations or
+editing disagreement resolutions in V1).
+**MANUAL STEPS FOR THE HUMAN (12.4):** (1) one-time `cd frontend && npm ci &&
+npx playwright install chromium`; (2) run the walkthrough yourself:
+`docker compose up -d postgres`, then `make dev-ui-stack` + `make ui-dev`
+(or `cd frontend && npm run e2e`), sign in with the printed clinician token
+and click through the three paths; (3) ideally have a clinician co-author do
+the same walkthrough and note usability issues.
+
+## ✅ PHASE 12 COMPLETE — the product is usable by a clinician on the dev stack
+
+React 18 + Vite + TS review SPA: in-memory bearer session validated by
+`/v1/me`; queue-filtered case list; case detail (CAD summary, de-identified
+note facts, timeline); review screen with server-rendered overlay layers
+(toggle/opacity in CSS only), DraftView (evidence chips, critic issues inline
+by claim_id, red UNVERIFIED banner, preserved disagreements), edit-and-diff
+form submitting the full edited draft + base revision with mandatory reason
+codes; approved-report page with attribution + screening notice. Zero status
+logic in the UI (static guard + manual review); every rule is enforced and
+answered by the server. Backend additions were read-only (list, timeline,
+facts, me, overlay layers). Open human decisions: (1) human/clinician
+usability pass; (2) 12.3 CLINICAL-REVIEW (add claims/recs, edit disagreement
+resolutions); (3) prod static serving (nginx) + IdP tokens; (4) earlier open
+items from Phases 10–11.
+
