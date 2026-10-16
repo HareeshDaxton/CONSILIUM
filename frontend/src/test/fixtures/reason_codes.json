@@ -1,0 +1,34 @@
+[
+  {
+    "code": "FACTUAL_ERROR_CAD",
+    "description": "Misread or misstated a CAD value"
+  },
+  {
+    "code": "CLINICAL_INTERPRETATION",
+    "description": "Wrong clinical reading of correct facts"
+  },
+  {
+    "code": "KNOWLEDGE_GAP",
+    "description": "Missing or wrong domain knowledge"
+  },
+  {
+    "code": "UNSAFE_RECOMMENDATION",
+    "description": "Unsafe recommendation"
+  },
+  {
+    "code": "OMISSION",
+    "description": "Something material was omitted"
+  },
+  {
+    "code": "TONE_OR_WORDING",
+    "description": "Tone or wording"
+  },
+  {
+    "code": "SCOPE_VIOLATION",
+    "description": "A role went beyond its scope"
+  },
+  {
+    "code": "OTHER",
+    "description": "Other (free-text reason required)"
+  }
+]

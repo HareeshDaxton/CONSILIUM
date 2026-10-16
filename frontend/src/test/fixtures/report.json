@@ -1,0 +1,74 @@
+{
+  "case_id": "3f9a1c2e-7b4d-4e8a-9c1f-2d6b8e0a4c11",
+  "status": "APPROVED_WITH_EDITS",
+  "laterality": "OD",
+  "version": 1,
+  "review_id": "6a7b8c9d-0e1f-4a2b-9c3d-4e5f6a7b8c9d",
+  "amends_review_id": null,
+  "approved_by": "clin-1",
+  "approved_at": "2026-10-16T10:05:00Z",
+  "action": "APPROVE_WITH_EDITS",
+  "draft_revision": 0,
+  "reason_codes": [
+    "TONE_OR_WORDING"
+  ],
+  "report": {
+    "impression": "Findings warrant evaluation for glaucoma by a clinician.",
+    "claims": [
+      {
+        "id": "c1",
+        "kind": "numeric",
+        "text": "Vertical cup-to-disc ratio is as measured.",
+        "evidence_refs": [
+          "cad.cdr.vertical"
+        ],
+        "source_roles": [
+          "ophthalmologist"
+        ],
+        "numeric_value": 0.5038759689922481,
+        "numeric_ref": "cad.cdr.vertical"
+      },
+      {
+        "id": "c2",
+        "kind": "categorical",
+        "text": "Screening tier is intermediate on the calibrated probability.",
+        "evidence_refs": [
+          "cad.p_glaucoma.tier"
+        ],
+        "source_roles": [
+          "ophthalmologist"
+        ],
+        "numeric_value": null,
+        "numeric_ref": null
+      },
+      {
+        "id": "c3",
+        "kind": "categorical",
+        "text": "Laterality is recorded as unknown.",
+        "evidence_refs": [
+          "cad.laterality"
+        ],
+        "source_roles": [
+          "ophthalmologist"
+        ],
+        "numeric_value": null,
+        "numeric_ref": null
+      }
+    ],
+    "disagreements": [],
+    "recommendations": [
+      {
+        "text": "Consider visual field testing and OCT to clarify the structural finding.",
+        "triggered_by": [
+          "cad.cdr.vertical"
+        ],
+        "basis": "model_knowledge"
+      }
+    ],
+    "limitations": [
+      "Screening support only; not a diagnosis."
+    ],
+    "revision": 0
+  },
+  "screening_notice": "Screening support only — not a diagnosis. Content reviewed and approved by the attributed clinician."
+}

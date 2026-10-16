@@ -1,0 +1,62 @@
+[
+  {
+    "event": "case.created",
+    "actor": "submitter-1",
+    "at": "2026-10-16T09:30:00Z"
+  },
+  {
+    "event": "node.precheck_image",
+    "actor": "graph",
+    "at": "2026-10-16T09:30:00Z"
+  },
+  {
+    "event": "node.input_rail",
+    "actor": "graph",
+    "at": "2026-10-16T09:30:00Z"
+  },
+  {
+    "event": "node.extract_note",
+    "actor": "graph",
+    "at": "2026-10-16T09:30:00Z"
+  },
+  {
+    "event": "node.call_vision",
+    "actor": "graph",
+    "at": "2026-10-16T09:30:00Z"
+  },
+  {
+    "event": "node.build_context",
+    "actor": "graph",
+    "at": "2026-10-16T09:30:00Z"
+  },
+  {
+    "event": "node.route_context",
+    "actor": "graph",
+    "at": "2026-10-16T09:30:00Z"
+  },
+  {
+    "event": "node.run_specialists",
+    "actor": "graph",
+    "at": "2026-10-16T09:30:00Z"
+  },
+  {
+    "event": "node.draft",
+    "actor": "graph",
+    "at": "2026-10-16T09:30:00Z"
+  },
+  {
+    "event": "node.audit",
+    "actor": "graph",
+    "at": "2026-10-16T09:30:00Z"
+  },
+  {
+    "event": "node.output_rail",
+    "actor": "graph",
+    "at": "2026-10-16T09:30:00Z"
+  },
+  {
+    "event": "node.persist_pending",
+    "actor": "graph",
+    "at": "2026-10-16T09:30:00Z"
+  }
+]

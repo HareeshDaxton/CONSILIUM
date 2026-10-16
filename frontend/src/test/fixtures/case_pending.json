@@ -1,0 +1,15 @@
+{
+  "case_id": "3f9a1c2e-7b4d-4e8a-9c1f-2d6b8e0a4c11",
+  "status": "PENDING_REVIEW",
+  "laterality": "OD",
+  "created_at": "2026-10-16T09:30:00Z",
+  "failure": null,
+  "cad_summary": {
+    "tier": "intermediate",
+    "p_calibrated": 0.5,
+    "cdr_vertical": 0.5038759689922481,
+    "quality_flags": [],
+    "mask_qc_ok": true
+  },
+  "unverified": false
+}

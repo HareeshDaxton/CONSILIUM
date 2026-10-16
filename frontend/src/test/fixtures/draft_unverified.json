@@ -1,0 +1,116 @@
+{
+  "case_id": "8c2d4e6f-1a3b-4c5d-8e9f-0a1b2c3d4e5f",
+  "case_status": "NEEDS_ATTENTION",
+  "revision": 2,
+  "draft": {
+    "impression": "Findings warrant evaluation for glaucoma by a clinician.",
+    "claims": [
+      {
+        "id": "c1",
+        "kind": "numeric",
+        "text": "Vertical cup-to-disc ratio is as measured.",
+        "evidence_refs": [
+          "cad.cdr.vertical"
+        ],
+        "source_roles": [
+          "ophthalmologist"
+        ],
+        "numeric_value": 0.5038759689922481,
+        "numeric_ref": "cad.cdr.vertical"
+      },
+      {
+        "id": "c2",
+        "kind": "categorical",
+        "text": "Screening tier is as computed.",
+        "evidence_refs": [
+          "cad.p_glaucoma.tier"
+        ],
+        "source_roles": [
+          "ophthalmologist"
+        ],
+        "numeric_value": null,
+        "numeric_ref": null
+      },
+      {
+        "id": "c3",
+        "kind": "categorical",
+        "text": "Laterality is recorded as unknown.",
+        "evidence_refs": [
+          "cad.laterality"
+        ],
+        "source_roles": [
+          "ophthalmologist"
+        ],
+        "numeric_value": null,
+        "numeric_ref": null
+      }
+    ],
+    "disagreements": [
+      {
+        "topic": "Urgency of referral",
+        "positions": [
+          [
+            "ophthalmologist",
+            "Routine referral is adequate given the intermediate tier."
+          ],
+          [
+            "optometrist",
+            "Earlier review is preferable until visual fields are available."
+          ]
+        ],
+        "resolution": "left to clinician"
+      }
+    ],
+    "recommendations": [
+      {
+        "text": "Consider visual field testing and OCT to clarify the structural finding.",
+        "triggered_by": [
+          "cad.cdr.vertical"
+        ],
+        "basis": "model_knowledge"
+      }
+    ],
+    "limitations": [
+      "Screening support only; not a diagnosis."
+    ],
+    "revision": 2
+  },
+  "open_issues": [
+    {
+      "type": "unsupported",
+      "claim_id": "c2",
+      "detail": "tier claim needs the calibrated probability as evidence",
+      "evidence": [],
+      "raised_by": "llm_critic"
+    },
+    {
+      "type": "omitted_finding",
+      "claim_id": null,
+      "detail": "image-quality score is not mentioned",
+      "evidence": [
+        "cad.quality.score"
+      ],
+      "raised_by": "llm_critic"
+    }
+  ],
+  "unverified": true,
+  "unverified_banner": "UNVERIFIED — critic did not approve",
+  "overlay_url": "/v1/cases/8c2d4e6f-1a3b-4c5d-8e9f-0a1b2c3d4e5f/overlay",
+  "evidence": {
+    "cad.p_glaucoma.tier": {
+      "label": "Screening tier",
+      "value": "intermediate",
+      "unit": null
+    },
+    "cad.cdr.vertical": {
+      "label": "Vertical cup-to-disc ratio",
+      "value": 0.5038759689922481,
+      "unit": null
+    },
+    "cad.laterality": {
+      "label": "Laterality",
+      "value": "UNKNOWN",
+      "unit": null
+    }
+  }
+}

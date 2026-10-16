@@ -1,0 +1,12 @@
+{
+  "case_id": "51e0b7a2-9d3c-4f1e-a2b4-c6d8e0f1a2b3",
+  "status": "FAILED",
+  "laterality": "UNKNOWN",
+  "created_at": "2026-10-16T09:30:00Z",
+  "failure": {
+    "type": "VisionFailure",
+    "reason": "VISION_UNAVAILABLE"
+  },
+  "cad_summary": null,
+  "unverified": false
+}

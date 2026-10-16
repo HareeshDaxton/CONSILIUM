@@ -1,0 +1,100 @@
+[
+  {
+    "id": "cad.p_glaucoma.calibrated",
+    "label": "Calibrated glaucoma probability",
+    "value": 0.5,
+    "unit": null,
+    "source": "cad"
+  },
+  {
+    "id": "cad.p_glaucoma.tier",
+    "label": "Screening tier",
+    "value": "intermediate",
+    "unit": null,
+    "source": "cad"
+  },
+  {
+    "id": "cad.cdr.vertical",
+    "label": "Vertical cup-to-disc ratio",
+    "value": 0.5038759689922481,
+    "unit": null,
+    "source": "cad"
+  },
+  {
+    "id": "cad.cdr.area_based",
+    "label": "Area-based cup-to-disc ratio",
+    "value": 0.4996692284879739,
+    "unit": null,
+    "source": "cad"
+  },
+  {
+    "id": "cad.disc.area_px",
+    "label": "Disc area",
+    "value": 12853,
+    "unit": "px",
+    "source": "cad"
+  },
+  {
+    "id": "cad.cup.area_px",
+    "label": "Cup area",
+    "value": 3209,
+    "unit": "px",
+    "source": "cad"
+  },
+  {
+    "id": "cad.disc.vdiam_px",
+    "label": "Disc vertical diameter",
+    "value": 129,
+    "unit": "px",
+    "source": "cad"
+  },
+  {
+    "id": "cad.cup.vdiam_px",
+    "label": "Cup vertical diameter",
+    "value": 65,
+    "unit": "px",
+    "source": "cad"
+  },
+  {
+    "id": "cad.quality.score",
+    "label": "Image quality score",
+    "value": 1.0,
+    "unit": null,
+    "source": "cad"
+  },
+  {
+    "id": "cad.quality.flags",
+    "label": "Image quality flags",
+    "value": [],
+    "unit": null,
+    "source": "cad"
+  },
+  {
+    "id": "cad.maskqc.ok",
+    "label": "Mask QC passed",
+    "value": true,
+    "unit": null,
+    "source": "cad"
+  },
+  {
+    "id": "cad.laterality",
+    "label": "Laterality",
+    "value": "UNKNOWN",
+    "unit": null,
+    "source": "cad"
+  },
+  {
+    "id": "note.age",
+    "label": "Age",
+    "value": 65,
+    "unit": "years",
+    "source": "note"
+  },
+  {
+    "id": "note.iop.od",
+    "label": "IOP (OD)",
+    "value": 21.0,
+    "unit": "mmHg",
+    "source": "note"
+  }
+]

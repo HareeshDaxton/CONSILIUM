@@ -1,0 +1,84 @@
+{
+  "case_id": "3f9a1c2e-7b4d-4e8a-9c1f-2d6b8e0a4c11",
+  "case_status": "PENDING_REVIEW",
+  "revision": 0,
+  "draft": {
+    "impression": "Findings warrant evaluation for glaucoma by a clinician.",
+    "claims": [
+      {
+        "id": "c1",
+        "kind": "numeric",
+        "text": "Vertical cup-to-disc ratio is as measured.",
+        "evidence_refs": [
+          "cad.cdr.vertical"
+        ],
+        "source_roles": [
+          "ophthalmologist"
+        ],
+        "numeric_value": 0.5038759689922481,
+        "numeric_ref": "cad.cdr.vertical"
+      },
+      {
+        "id": "c2",
+        "kind": "categorical",
+        "text": "Screening tier is as computed.",
+        "evidence_refs": [
+          "cad.p_glaucoma.tier"
+        ],
+        "source_roles": [
+          "ophthalmologist"
+        ],
+        "numeric_value": null,
+        "numeric_ref": null
+      },
+      {
+        "id": "c3",
+        "kind": "categorical",
+        "text": "Laterality is recorded as unknown.",
+        "evidence_refs": [
+          "cad.laterality"
+        ],
+        "source_roles": [
+          "ophthalmologist"
+        ],
+        "numeric_value": null,
+        "numeric_ref": null
+      }
+    ],
+    "disagreements": [],
+    "recommendations": [
+      {
+        "text": "Consider visual field testing and OCT to clarify the structural finding.",
+        "triggered_by": [
+          "cad.cdr.vertical"
+        ],
+        "basis": "model_knowledge"
+      }
+    ],
+    "limitations": [
+      "Screening support only; not a diagnosis."
+    ],
+    "revision": 0
+  },
+  "open_issues": [],
+  "unverified": false,
+  "unverified_banner": null,
+  "overlay_url": "/v1/cases/3f9a1c2e-7b4d-4e8a-9c1f-2d6b8e0a4c11/overlay",
+  "evidence": {
+    "cad.p_glaucoma.tier": {
+      "label": "Screening tier",
+      "value": "intermediate",
+      "unit": null
+    },
+    "cad.cdr.vertical": {
+      "label": "Vertical cup-to-disc ratio",
+      "value": 0.5038759689922481,
+      "unit": null
+    },
+    "cad.laterality": {
+      "label": "Laterality",
+      "value": "UNKNOWN",
+      "unit": null
+    }
+  }
+}
