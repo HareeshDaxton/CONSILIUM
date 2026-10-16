@@ -11,7 +11,7 @@ anything only the user can do (account registrations, dataset downloads, API
 keys into `.env`, tool installs, OS policy changes). If the list is empty,
 the section needed no manual work.
 
-Current position: **PHASE 10 COMPLETE (10.1–10.4) — deterministic input/output rails + NeMo wiring (fake engine offline) + adversarial suite; every trigger → NEEDS_ATTENTION + guardrail.triggered audit event. Next: Phase 11 — persistence/API/auth/review service.**
+Current position: **PHASE 11 COMPLETE (11.1–11.4) — FastAPI app + JWT auth + RFC 7807, cases endpoints + Postgres job queue/worker, clinician review service + report, offline e2e vertical slice (773 passed, 0 skipped). Next: Phase 12 — React review UI.**
 
 ---
 
@@ -2898,3 +2898,276 @@ patterns (phi_patterns.yaml) shared across verifier, de-identification and
 rails. Open human decisions: (1) NEEDS_ATTENTION vs REJECTED_INPUT for
 input-rail triggers (AGENTS §4 vs plan 10.1); (2) NeMo on redacted vs raw
 note (§14 vs I-6); (3) adding the optional `nemoguardrails` dependency.
+
+---
+
+## Phase 11 — API + auth + review service
+
+### Section 11.1 — FastAPI app + auth ✅ DONE
+
+**Goal:** `api/main.py` create_app(deps) (build_prod_deps the ONLY real-client
+construction site); RFC 7807 problem+json; OTel middleware; `api/auth.py` JWT
+bearer (HS256 dev, OIDC-ready), submitter/clinician roles, require_clinician.
+Exit: auth tests (role enforcement, bad token); problem+json never leaks stack
+traces or user content.
+
+**What was done — files**
+- `src/consilium/api/main.py` (REWRITTEN) — `create_app(deps: AppDeps | None)`;
+  no module-level app (importing never builds real clients); docs + openapi
+  OFF unless `API_DOCS_ENABLED`; problem handlers + tracing middleware.
+- `src/consilium/api/deps.py` (NEW) — `AppDeps` (settings, graph Deps, repos,
+  object store, GraphRunner, clock); `build_app_deps()` → `build_prod_deps`;
+  `build_repositories` requires FIELD_ENCRYPTION_KEY (fail closed, I-6).
+- `src/consilium/api/auth.py` (NEW) — `decode_token` (algorithm pinned → no
+  alg confusion / `none`; `sub`+`exp` required; iss/aud checked when set;
+  RS256/ES256 via `JWT_PUBLIC_KEY`), `Identity`, `ApiRole`,
+  `require_auth`/`require_submitter`/`require_clinician`, `issue_token` (HS*
+  dev/test minting only). Unknown roles ignored; no known role → 403.
+- `src/consilium/api/errors.py` (NEW) — RFC 7807 handlers: AppError → `reason`
+  code only (`detail` never rendered); request-validation → `loc`+`type` only
+  (no input echo, no pydantic msg); HTTP errors mapped; unhandled → 500
+  `internal`, log line carries the exception TYPE NAME only.
+- `src/consilium/api/routes/health.py` (NEW) — `/healthz`, `/readyz` (DB ping
+  → 503 when down), `/metrics` (Prometheus).
+- `src/consilium/observability/otel.py` (NEW) — pure-ASGI tracing middleware:
+  span per request named by ROUTE TEMPLATE; method/route/status only.
+- `src/consilium/persistence/object_store.py` (NEW) — content-addressed
+  `ObjectStore` (`mem://`, `file://`; traversal-guarded; atomic writes);
+  `s3://` fails closed (deployment seam, not implemented in V1).
+- `src/consilium/graph/deps.py` (CHANGED) — `_assemble` shared by fake/prod;
+  `build_prod_deps(settings, image_store=…)` now really builds OpenAI + HTTP
+  vision (revision pin cross-checked with models.yaml) + NeMo rails.
+- `src/consilium/core/errors.py` (CHANGED) — API errors `Unauthorized`,
+  `Forbidden`, `NotFound`, `StatusConflict`, `RequestInvalid`.
+- `src/consilium/core/settings.py` (CHANGED) — jwt_algorithm Literal,
+  jwt_public_key/issuer/audience, api_docs_enabled, rails_engine
+  (`nemo`|`passthrough`), worker_poll_interval_s, worker_max_attempts.
+- `src/consilium/persistence/repositories.py` (CHANGED) — `Repositories.ping()`.
+- `src/consilium/vision/client_http.py` (CHANGED) — optional httpx
+  `transport` (in-process fake server for e2e; no behaviour change).
+- `Dockerfile`, `docker-compose.yml`, `Makefile` (CHANGED) — uvicorn
+  `consilium.api.main:create_app --factory`; `make serve` implemented.
+- `tests/api_kit.py` (NEW) — fake-backed AppDeps + bearer helper.
+- `tests/unit/test_api_auth.py` (NEW, 13 tests) — missing/garbage/Basic/empty
+  token 401 + WWW-Authenticate; forged signature + `alg=none` 401; expired;
+  no-known-role 403; submitter→clinician route 403; unhandled error and
+  AppError detail and validation input never echoed (synthetic PHI bait);
+  404 problem; docs/openapi disabled.
+- `tests/conftest.py` (CHANGED) — synthetic JWT secret ≥32 bytes (pyjwt
+  InsecureKeyLengthWarning is an error under `filterwarnings=error`).
+
+**Verified:** `rtk uv run pytest tests/unit/test_api_auth.py
+tests/unit/test_settings.py tests/unit/test_errors.py
+tests/unit/test_vision_client.py tests/unit/test_graph_nodes.py -q --no-cov`
+→ 64 passed; `mypy --strict` api/observability/persistence/core/graph.deps
+clean; ruff clean; lint-imports 8 kept, 0 broken.
+
+**Deferred / not verified:** `build_prod_deps` not exercised (needs real
+OPENAI key + nemoguardrails); per-case TokenBudget still None in Deps.
+**CLINICAL-REVIEW items:** none.
+**MANUAL STEPS FOR THE HUMAN (11.1):** set a ≥32-byte `JWT_SECRET` and
+`FIELD_ENCRYPTION_KEY` in `.env` before `make serve`.
+
+### Section 11.2 — Cases endpoints + job queue ✅ DONE
+
+**Goal:** POST /v1/cases (multipart, Idempotency-Key, filename never
+logged/stored), GET case, GET draft (open_issues + unverified + evidence map),
+GET overlay (server-rendered PNG cached by content hash), GET report;
+`jobs/queue.py` + `jobs/worker.py` (jobs table, FOR UPDATE SKIP LOCKED, 202 +
+enqueue). Exit: idempotency, overlay render, report gating, worker completes.
+
+**What was done — files**
+- `src/consilium/api/routes/cases.py` (NEW) — submit: image read with
+  `max_bytes` cap, stored content-addressed (`images/<sha256>`; `filename`
+  never read), `runner.submit` → **`runner.run_intake`** (precheck + input
+  rail run in the API so the raw note is redacted + encrypted BEFORE the
+  queue; it never crosses the queue or hits the DB, I-6) → enqueue → 202.
+  Precheck rejection → 422 `input-rejected` problem with `case_id` (no job);
+  rail trigger → 202 with NEEDS_ATTENTION (no job). GET case → CaseView (cad
+  summary, failure code, unverified). GET draft (clinician) → DraftView:
+  latest revision, `open_issues` + `unverified_banner` only when UNVERIFIED,
+  evidence chips for cited fact IDs only, 409 before a draft exists. GET
+  overlay (clinician) → PNG direct (no presigned URLs in V1), cached under
+  `overlays/sha256(case_id|disc_rle|cup_rle)`, ETag; 409 before CAD.
+- `src/consilium/api/schemas_http.py` (NEW) — SubmitResponse, CaseView,
+  CadSummary, FailureView, DraftView, EvidenceChip.
+- `src/consilium/jobs/queue.py` (NEW) — JobQueue facade over repos.
+- `src/consilium/jobs/worker.py` (NEW) — claim → `runner.resume` → done;
+  escaped (infra) exceptions → retry with 2^n s backoff, then `dead` +
+  `job.dead` audit (exception TYPE only); stale `running` jobs requeued on
+  start; `python -m consilium.jobs.worker`.
+- `src/consilium/vision/overlay.py` (NEW) — outlines of the post-processed
+  stored masks (disc cyan, cup magenta) at mask resolution.
+- `src/consilium/vision/pipeline.py` (CHANGED) — `run_detailed` returns
+  (CADResult, pin-verified RawVisionOutput); `run` unchanged for callers.
+- `src/consilium/graph/state.py`/`nodes.py`/`build.py` (CHANGED) — transient
+  `raw_vision` (exclude=True, never in state_json) → `cad_results.raw_vision_json`
+  now stores the full RawVisionOutput (AGENTS §16; closes the 9.3 deferral);
+  `GraphRunner.run_intake` + `INTAKE_NODES`.
+- `src/consilium/persistence/repositories.py` (CHANGED) — PersistedCase gains
+  created_at/created_by; `draft_latest`, `cad_load`; queue SQL
+  `jobs_enqueue` (ON CONFLICT DO NOTHING), `jobs_claim` (FOR UPDATE SKIP
+  LOCKED), `jobs_finish`, `jobs_retry`, `jobs_requeue_stale`, `job_get`.
+- `src/consilium/persistence/object_store.py` (CHANGED) — optional `key` on put.
+- `src/consilium/api/main.py` (CHANGED) — cases router under `/v1`.
+- `docker-compose.yml` (CHANGED) — worker runs `consilium.jobs.worker`;
+  api+worker share an `objects` volume (`file:///data/objects`);
+  FIELD_ENCRYPTION_KEY required; RAILS_ENGINE=passthrough for local dev.
+- `scripts/worker_placeholder.py` (DELETED). `.env.example` (CHANGED).
+- `tests/api_kit.py` (CHANGED) — `asgi_client` (httpx ASGI, same loop as asyncpg).
+- `tests/integration/test_api_cases.py` (NEW, 8 tests) — idempotent submit
+  (1 case, 1 job); worker completes → PENDING_REVIEW, job done/attempts 1,
+  draft view, submitter 403 on draft; overlay PNG has cyan+magenta, cached
+  once, identical on re-fetch; draft/overlay 409 before processing; bad image
+  → 422 + no job; PHI filename + note text absent from cases/audit/object
+  keys; 404/401/403; worker infra failure → retry → dead + audit.
+
+**Deviation (honest):** GET /v1/cases/{id}/report moved to 11.3 — it reads
+review rows written by the review service; its gating test lives there.
+
+**Verified:** `rtk uv run pytest tests/integration tests/unit/test_graph_nodes.py
+tests/unit/test_vision_pipeline.py tests/unit/test_api_auth.py -q --no-cov` →
+**63 passed** (real Postgres via docker compose); ruff + format clean; mypy
+--strict src/ clean (90 files); lint-imports 8 kept, 0 broken.
+
+**Deferred / not verified:** concurrent same-key submits race the unique
+index (second gets 500 rather than the existing case); a crash between intake
+and enqueue leaves an un-queued INPUT_RAIL_PASSED case (needs a sweep);
+compose stack not brought up end-to-end (needs OPENAI key + migrated DB).
+**CLINICAL-REVIEW items:** none.
+**MANUAL STEPS FOR THE HUMAN (11.2):** set `FIELD_ENCRYPTION_KEY` in `.env`
+(compose now refuses to start without it); run `make migrate` against the
+compose Postgres before `make up` serves traffic.
+
+### Section 11.3 — Review service ✅ DONE
+
+**Goal:** `review/service.py` APPROVE / APPROVE_WITH_EDITS / REJECT — the ONLY
+writer of APPROVED*; identity from auth; no self-approval; reason codes
+mandatory (OTHER needs text); UNVERIFIED block checked server-side; approved
+reports immutable (amendment = new linked version); `diff.py`,
+`reason_codes.py`, `feedback.py` (FeedbackStore + no-op V2 seam),
+`analytics.py`. Exit: per-action tests; self-approval refused;
+unverified-approval blocked; diff round-trip; analytics on fixtures.
+
+**What was done — files**
+- `src/consilium/review/service.py` (NEW) — `review()`: command checks →
+  ONE transaction under `SELECT … FOR UPDATE` on the case: base_revision must
+  be the latest draft revision (else 409 STALE_REVISION); PENDING_REVIEW
+  reviewable; NEEDS_ATTENTION only REJECT unless the draft is UNVERIFIED;
+  APPROVED* → only APPROVE_WITH_EDITS as an amendment (version n+1, linked to
+  the previous approval, diffed against the live report), else 409
+  REPORT_IMMUTABLE; REJECTED/other → 409. Self-approval (reviewer sub ==
+  case.created_by) → 403. **UNVERIFIED block:** plain APPROVE → 409
+  UNVERIFIED_REQUIRES_EDITS; with edits, every claim-scoped issue of the
+  LATEST STORED verdict must have its claim edited/removed AND the edited
+  draft must pass `verify.deterministic.verify_draft` against the case's
+  GlobalContext + sub-reports (fail closed if no context) → else 409
+  UNVERIFIED_ISSUES_OPEN. Writes review row (via FeedbackStore) + case
+  transition + `review.<action>` audit (codes/ids only — comment never
+  audited). `load_report()` gated to APPROVED* (409 REPORT_NOT_APPROVED);
+  latest version, reviewer attribution, screening notice.
+  Edited draft is validated in JSON mode (DirectorDraft stays strict, I-8).
+- `src/consilium/review/diff.py` (NEW) — flatten/diff/apply; claim paths by
+  id (`claims[id=c2].text`, reorder-stable), other lists by index.
+- `src/consilium/review/reason_codes.py` (NEW) — closed `ReasonCode` enum +
+  descriptions + `KNOWLEDGE_CODES` (V2 gate).
+- `src/consilium/review/feedback.py` (NEW) — `Correction`, `FeedbackStore`
+  (`PostgresFeedbackStore` writes the reviews row), `FeedbackRetriever` +
+  `NoopFeedbackRetriever` (V2 seam; no retrieval/embeddings, I-10).
+- `src/consilium/review/analytics.py` (NEW) — `reason_code_report`: per-code
+  counts/shares + knowledge share (KNOWLEDGE_GAP|CLINICAL_INTERPRETATION).
+- `src/consilium/api/routes/review.py` (NEW) — `POST /v1/cases/{id}/review`,
+  `GET /v1/cases/{id}/report` (moved here from 11.2), `GET
+  /v1/meta/reason-codes`; all clinician-only. `api/main.py` wires it.
+- `src/consilium/persistence/repositories.py` (CHANGED) — `RepoTx`:
+  `case_for_update`, `review_add`, `reviews_for_case`, `draft_get`,
+  `draft_latest_revision`, `verdict_latest_issues`; `Repositories`:
+  `reviews_for_case`, `reason_code_counts` (lateral jsonb explode, `?|`).
+- `tests/unit/test_review_diff.py` (NEW, 11) — diff ops/paths, JSON
+  round-trip, reorder stability, command validation matrix, unknown code.
+- `tests/integration/test_review_service.py` (NEW, 8) — approve → report
+  attribution + audit, report gated before approval, immutability (approve/
+  reject after approval 409); self-approval 403; submitter 403; reason codes
+  required / stale revision / reject / re-review 409; edits diff stored +
+  `apply_diff(base) == edited_draft_json`; amendment v2 linked to v1 by
+  another clinician; UNVERIFIED: plain approve, wrong-field edit, and c2 edit
+  with a stray number all 409, proper c2 fix → APPROVED_WITH_EDITS;
+  analytics counts/knowledge share; reason-codes meta.
+
+**Key decision:** amendment link + version live in `reviews.edits_diff_json`
+(`{base_revision, version, amends_review_id, changes}`) instead of new
+columns — migration `0001_initial` builds tables from the LIVE models
+(`Base.metadata.create_all`), so any new column would collide with a 0002
+`add_column`. Flagged below.
+
+**Verified:** `rtk uv run pytest tests/integration/test_review_service.py
+tests/unit/test_review_diff.py tests/integration/test_api_cases.py -q
+--no-cov` → **27 passed** (real Postgres); ruff/format clean; mypy
+--strict src/ clean (96 files); lint-imports 8 kept, 0 broken.
+
+**Deferred / not verified:** clinician-edited text is not re-run through the
+output rail on ordinary (verified) approvals — the clinician is the final
+authority, but a dose/diagnosis phrase typed by a clinician is not blocked;
+`0001_initial` should be frozen to explicit DDL before any 0002 migration
+(db-migration skill).
+**CLINICAL-REVIEW items:** whether REJECT by the case's own submitter (who
+also holds the clinician role) should be allowed — currently only approvals
+are blocked for self-review. `# CLINICAL-REVIEW` decision for the team.
+**MANUAL STEPS FOR THE HUMAN (11.3):** none.
+
+### Section 11.4 — E2E ✅ DONE
+
+**Goal:** tests/e2e: synthetic image + synthetic note → POST → worker →
+PENDING_REVIEW (recorded LLM + fake vision HTTP service) → overlay fetch →
+review → approved report with full audit trail; UNVERIFIED banner data on a
+loop-exhausted case. Exit: e2e green offline.
+
+**What was done — files**
+- `tests/e2e/test_vertical_slice.py` (NEW, 3 tests) — real FastAPI app + JWT
+  + Postgres + Alembic schema + job queue/worker + `FileObjectStore` +
+  **`HttpVisionClient` speaking HTTP to the actual `scripts/fake_vision_server.py`
+  app** (in-process ASGI transport: real request/response + revision-pin
+  check, no sockets/network); LLM = canned structured responses.
+  (1) submit (Idempotency-Key) → worker → PENDING_REVIEW → draft → overlay PNG
+  (256×256, cached on disk) → APPROVE_WITH_EDITS → report (APPROVED_WITH_EDITS,
+  clinician attribution, v1, edited impression, screening notice); audit trail
+  contains every §4 node event in order, ends with `review.approve_with_edits`,
+  no guardrail triggers. (2) critic always rejects → NEEDS_ATTENTION,
+  `unverified`, banner text, open issue on c2, plain APPROVE → 409, exactly
+  CRITIC_MAX_ROUNDS audit events. (3) client pin ≠ server revision → FAILED
+  with a VISION_* failure (fail closed).
+- `tests/e2e/conftest.py` (NEW) — reuses the integration Postgres fixtures.
+- `src/consilium/persistence/alembic/env.py` (CHANGED) — `fileConfig(...,
+  disable_existing_loggers=False)`. Running migrations in-process (test
+  fixtures, app startup) silently DISABLED every existing logger;
+  `tests/unit/test_critic.py::test_run_critic_facade_returns_verdict_and_logs_counts`
+  failed whenever Postgres tests ran first. Latent since 9.1 — hidden because
+  the Phase 10 battery skipped all Postgres tests (Docker was down).
+
+**Deviation (honest):** "against the compose stack" is satisfied for
+Postgres only; api/worker/fake-vision run in-process (same code paths, ASGI
+transport) rather than as compose containers — bringing the containers up
+needs a real OPENAI key (prod deps build OpenAILLMClient) and a migrated DB.
+
+**PHASE 11 EXIT VERIFICATION (full offline battery, run once):**
+- `uv run ruff check .` → clean; `uv run ruff format --check .` → 198 formatted
+- `uv run mypy --strict src/` → no issues (96 files)
+- `uv run lint-imports --config importlinter.ini` → 8 kept, 0 broken
+- `uv run python scripts/schema_snapshot.py --check` → up to date (23 models)
+- `uv run pytest -m "not live" -q` → **773 passed, 0 skipped**, coverage 92%
+  (Docker Desktop + compose Postgres running: every integration/e2e test ran).
+
+**CLINICAL-REVIEW items:** none new (see 11.3 self-reject question).
+**MANUAL STEPS FOR THE HUMAN (11.4):** none beyond 11.1–11.3.
+
+## ✅ PHASE 11 COMPLETE — the vertical slice works: submit → process → review → report
+
+API (JWT roles, RFC 7807, OTel) → intake in-process (raw note redacted +
+encrypted before the queue) → Postgres job queue → worker resumes the graph →
+PENDING_REVIEW / NEEDS_ATTENTION(UNVERIFIED) → clinician review service (sole
+writer of APPROVED*, no self-approval, mandatory reason codes, server-side
+UNVERIFIED resolution check, immutable reports + linked amendments) → gated
+report with attribution; full audit trail. Open human decisions: (1) self-
+REJECT policy; (2) freeze `0001_initial` to explicit DDL before any 0002;
+(3) S3 object-store binding (V1 = file://); (4) compose stack needs an
+OPENAI key + `make migrate` to serve; (5) earlier open items from Phase 10.
