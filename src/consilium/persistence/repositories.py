@@ -44,6 +44,7 @@ from consilium.persistence.models import (
 
 __all__ = [
     "APPEND_ONLY_TABLES",
+    "PersistedAuditEvent",
     "PersistedCad",
     "PersistedCase",
     "PersistedDraft",
@@ -79,6 +80,15 @@ class PersistedDraft:
 class PersistedCad:
     cad_json: dict[str, Any]
     raw_vision_json: dict[str, Any]
+
+
+@dataclass(frozen=True, slots=True)
+class PersistedAuditEvent:
+    """Timeline view: event name, opaque actor, time — never ``detail_json``."""
+
+    event: str
+    actor: str
+    at: datetime
 
 
 @dataclass(frozen=True, slots=True)
@@ -525,6 +535,34 @@ class Repositories:
             return None if row is None else _case_view(row)
 
     # ----- read views for the API -----
+
+    async def cases_list(
+        self,
+        *,
+        statuses: tuple[str, ...] = (),
+        created_by: str | None = None,
+        limit: int = 50,
+    ) -> list[PersistedCase]:
+        """Newest first; optional status filter (queue views) and owner scope."""
+        stmt = select(Case).order_by(Case.created_at.desc(), Case.id).limit(limit)
+        if statuses:
+            stmt = stmt.where(Case.status.in_(statuses))
+        if created_by is not None:
+            stmt = stmt.where(Case.created_by == created_by)
+        async with self._session_factory() as session:
+            return [_case_view(row) for row in (await session.execute(stmt)).scalars()]
+
+    async def audit_events(self, case_id: uuid.UUID) -> list[PersistedAuditEvent]:
+        """Append order. ``detail_json`` is deliberately not projected."""
+        async with self._session_factory() as session:
+            rows = (
+                await session.execute(
+                    select(AuditLogRow.event, AuditLogRow.actor, AuditLogRow.at)
+                    .where(AuditLogRow.case_id == case_id)
+                    .order_by(AuditLogRow.id)
+                )
+            ).all()
+        return [PersistedAuditEvent(event=e, actor=a, at=at) for e, a, at in rows]
 
     async def draft_latest(self, case_id: uuid.UUID) -> PersistedDraft | None:
         async with self._session_factory() as session:
