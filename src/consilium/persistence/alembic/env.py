@@ -19,7 +19,9 @@ from consilium.persistence.models import Base
 
 config = context.config
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # keep application loggers alive when migrations run in-process (tests,
+    # app startup): the default would silently disable every existing logger
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 target_metadata = Base.metadata
 
