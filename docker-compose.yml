@@ -51,16 +51,22 @@ services:
 
   api:
     build: .
-    command: ["uvicorn", "consilium.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    command: ["uvicorn", "consilium.api.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://consilium:consilium@postgres:5432/consilium}
-      OBJECT_STORE_URI: ${OBJECT_STORE_URI:-s3://consilium:consilium-dev-only@minio:9000/consilium}
+      # V1 object store binding: file:// on a volume shared by api + worker
+      # (s3:// is a deployment seam not implemented in V1 — fails closed).
+      OBJECT_STORE_URI: ${OBJECT_STORE_URI:-file:///data/objects}
+      FIELD_ENCRYPTION_KEY: ${FIELD_ENCRYPTION_KEY:?set FIELD_ENCRYPTION_KEY (32-byte urlsafe-b64)}
+      RAILS_ENGINE: ${RAILS_ENGINE:-passthrough}
       VISION_CLIENT_MODE: ${VISION_CLIENT_MODE:-http}
       VISION_ENDPOINT_URL: ${VISION_ENDPOINT_URL:-http://fake-vision:8100}
       VISION_ENDPOINT_TOKEN: ${VISION_ENDPOINT_TOKEN:-dev-fake-token}
       VISION_PINNED_REVISION: ${VISION_PINNED_REVISION:-sha256:fake/dev-fake-000}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       JWT_SECRET: ${JWT_SECRET:-dev-only-insecure-secret-change-me}
+    volumes:
+      - objects:/data/objects
     ports:
       - "8000:8000"
     depends_on:
@@ -71,10 +77,16 @@ services:
 
   worker:
     build: .
-    command: ["python", "scripts/worker_placeholder.py"]
+    volumes:
+      - objects:/data/objects
+    command: ["python", "-m", "consilium.jobs.worker"]
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://consilium:consilium@postgres:5432/consilium}
-      OBJECT_STORE_URI: ${OBJECT_STORE_URI:-s3://consilium:consilium-dev-only@minio:9000/consilium}
+      # V1 object store binding: file:// on a volume shared by api + worker
+      # (s3:// is a deployment seam not implemented in V1 — fails closed).
+      OBJECT_STORE_URI: ${OBJECT_STORE_URI:-file:///data/objects}
+      FIELD_ENCRYPTION_KEY: ${FIELD_ENCRYPTION_KEY:?set FIELD_ENCRYPTION_KEY (32-byte urlsafe-b64)}
+      RAILS_ENGINE: ${RAILS_ENGINE:-passthrough}
       VISION_CLIENT_MODE: ${VISION_CLIENT_MODE:-http}
       VISION_ENDPOINT_URL: ${VISION_ENDPOINT_URL:-http://fake-vision:8100}
       VISION_ENDPOINT_TOKEN: ${VISION_ENDPOINT_TOKEN:-dev-fake-token}
@@ -104,3 +116,4 @@ services:
 volumes:
   pgdata:
   miniodata:
+  objects:
