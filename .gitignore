@@ -34,3 +34,7 @@ htmlcov/
 # Node (frontend)
 node_modules/
 frontend/dist/
+# Playwright walkthrough (12.4): dev tokens + seeded IDs, run artifacts
+frontend/e2e/.stack.json
+frontend/test-results/
+frontend/playwright-report/
