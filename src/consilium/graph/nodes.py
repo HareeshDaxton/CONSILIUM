@@ -147,7 +147,7 @@ async def call_vision(state: CaseState, deps: Deps) -> CaseState:
 
         raise VisionFailure("IMAGE_MISSING", detail="case has no image_uri")
     image = await deps.image_store.load(state.image_uri)
-    cad = await vision_pipeline.run(
+    cad, raw = await vision_pipeline.run_detailed(
         image,
         client=deps.vision,
         thresholds=deps.thresholds,
@@ -156,7 +156,9 @@ async def call_vision(state: CaseState, deps: Deps) -> CaseState:
         # §4: total cold-start wait bounded by VISION_TIMEOUT_S, then fail closed
         retry=RetryPolicy(total_budget_s=deps.settings.vision_timeout_s),
     )
-    return state.model_copy(update={"status": CaseStatus.CAD_COMPLETE, "cad": cad})
+    return state.model_copy(
+        update={"status": CaseStatus.CAD_COMPLETE, "cad": cad, "raw_vision": raw}
+    )
 
 
 # ---------------------------------------------------------------- context
