@@ -10,15 +10,20 @@ from pydantic import BaseModel, ConfigDict
 
 from consilium.schemas.agents import DirectorDraft
 from consilium.schemas.audit import Issue
-from consilium.schemas.enums import CaseStatus, Laterality
+from consilium.schemas.enums import CaseStatus, FactSource, Laterality
 
 __all__ = [
     "CadSummary",
+    "CaseListItem",
+    "CaseListView",
     "CaseView",
     "DraftView",
     "EvidenceChip",
+    "FactView",
     "FailureView",
+    "MeView",
     "SubmitResponse",
+    "TimelineEvent",
 ]
 
 
@@ -71,3 +76,40 @@ class DraftView(_View):
     unverified_banner: str | None
     overlay_url: str
     evidence: dict[str, EvidenceChip]
+
+
+class MeView(_View):
+    """The verified caller (from the token; the UI never trusts its own decode)."""
+
+    sub: str
+    roles: tuple[str, ...]
+
+
+class CaseListItem(_View):
+    case_id: str
+    status: CaseStatus
+    laterality: Laterality
+    created_at: datetime | None
+    tier: str | None = None
+    unverified: bool = False
+
+
+class CaseListView(_View):
+    items: tuple[CaseListItem, ...]
+
+
+class TimelineEvent(_View):
+    """Audit event name + opaque actor + time; audit ``detail_json`` is never
+    exposed (it is for investigators, not the review UI)."""
+
+    event: str
+    actor: str
+    at: datetime
+
+
+class FactView(_View):
+    id: str
+    label: str
+    value: str | float | int | bool | tuple[str, ...]
+    unit: str | None = None
+    source: FactSource
