@@ -16,11 +16,13 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import TracebackType
 from typing import Any
 
-from sqlalchemy import select, update
+from sqlalchemy import func, or_, select, text, update
+from sqlalchemy.dialects.postgresql import array as pg_array
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from consilium.persistence.db import SessionFactory
@@ -33,12 +35,23 @@ from consilium.persistence.models import (
     Case,
     ClinicalNoteRow,
     DraftRow,
+    JobRow,
+    ReviewRow,
     RoutedContextRow,
     VerdictRow,
     VisionCallRow,
 )
 
-__all__ = ["APPEND_ONLY_TABLES", "PersistedCase", "RepoTx", "Repositories"]
+__all__ = [
+    "APPEND_ONLY_TABLES",
+    "PersistedCad",
+    "PersistedCase",
+    "PersistedDraft",
+    "PersistedJob",
+    "PersistedReview",
+    "RepoTx",
+    "Repositories",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,6 +63,69 @@ class PersistedCase:
     state_json: dict[str, Any]
     last_node: str | None
     failure_json: dict[str, Any] | None
+    created_at: datetime | None = None
+    created_by: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class PersistedDraft:
+    revision: int
+    draft_json: dict[str, Any]
+    unverified: bool
+    open_issues_json: list[Any] | None
+
+
+@dataclass(frozen=True, slots=True)
+class PersistedCad:
+    cad_json: dict[str, Any]
+    raw_vision_json: dict[str, Any]
+
+
+@dataclass(frozen=True, slots=True)
+class PersistedJob:
+    case_id: uuid.UUID
+    status: str
+    attempts: int
+    claimed_by: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class PersistedReview:
+    id: uuid.UUID
+    draft_revision: int | None
+    reviewer_id: str
+    action: str
+    edits_diff_json: dict[str, Any] | None
+    edited_draft_json: dict[str, Any] | None
+    reason_codes: list[Any]
+    free_text_reason: str | None
+    decided_at: datetime
+
+
+def _review_view(row: ReviewRow) -> PersistedReview:
+    return PersistedReview(
+        id=row.id,
+        draft_revision=row.draft_revision,
+        reviewer_id=row.reviewer_id,
+        action=row.action,
+        edits_diff_json=row.edits_diff_json,
+        edited_draft_json=row.edited_draft_json,
+        reason_codes=row.reason_codes,
+        free_text_reason=row.free_text_reason,
+        decided_at=row.decided_at,
+    )
+
+
+def _case_view(row: Case) -> PersistedCase:
+    return PersistedCase(
+        id=row.id,
+        status=row.status,
+        state_json=row.state_json,
+        last_node=row.last_node,
+        failure_json=row.failure_json,
+        created_at=row.created_at,
+        created_by=row.created_by,
+    )
 
 
 class RepoTx:
@@ -129,6 +205,83 @@ class RepoTx:
         self._session.add(
             AuditLogRow(case_id=case_id, event=event, actor=actor, detail_json=detail)
         )
+
+    async def case_for_update(self, case_id: uuid.UUID) -> PersistedCase | None:
+        """Row-locked read (``FOR UPDATE``): serialises concurrent reviews of
+        one case so two clinicians cannot both finalise it."""
+        row = (
+            await self._session.execute(select(Case).where(Case.id == case_id).with_for_update())
+        ).scalar_one_or_none()
+        return None if row is None else _case_view(row)
+
+    # ----- reviews (append-only; the review service is the only writer) -----
+
+    async def review_add(
+        self,
+        *,
+        review_id: uuid.UUID,
+        case_id: uuid.UUID,
+        draft_revision: int,
+        reviewer_id: str,
+        action: str,
+        edits_diff_json: dict[str, Any] | None,
+        edited_draft_json: dict[str, Any] | None,
+        reason_codes: list[str],
+        free_text_reason: str | None,
+    ) -> None:
+        self._session.add(
+            ReviewRow(
+                id=review_id,
+                case_id=case_id,
+                draft_revision=draft_revision,
+                reviewer_id=reviewer_id,
+                action=action,
+                edits_diff_json=edits_diff_json,
+                edited_draft_json=edited_draft_json,
+                reason_codes=reason_codes,
+                free_text_reason=free_text_reason,
+            )
+        )
+
+    async def reviews_for_case(self, case_id: uuid.UUID) -> list[PersistedReview]:
+        rows = (
+            await self._session.execute(
+                select(ReviewRow)
+                .where(ReviewRow.case_id == case_id)
+                .order_by(ReviewRow.decided_at, ReviewRow.id)
+            )
+        ).scalars()
+        return [_review_view(r) for r in rows]
+
+    async def draft_get(self, case_id: uuid.UUID, revision: int) -> PersistedDraft | None:
+        row = await self._session.get(DraftRow, (case_id, revision))
+        if row is None:
+            return None
+        return PersistedDraft(
+            revision=row.revision,
+            draft_json=row.draft_json,
+            unverified=row.unverified,
+            open_issues_json=row.open_issues_json,
+        )
+
+    async def draft_latest_revision(self, case_id: uuid.UUID) -> int | None:
+        value = (
+            await self._session.execute(
+                select(func.max(DraftRow.revision)).where(DraftRow.case_id == case_id)
+            )
+        ).scalar_one_or_none()
+        return None if value is None else int(value)
+
+    async def verdict_latest_issues(self, case_id: uuid.UUID) -> list[Any] | None:
+        row = (
+            await self._session.execute(
+                select(VerdictRow)
+                .where(VerdictRow.case_id == case_id)
+                .order_by(VerdictRow.at.desc(), VerdictRow.round.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        return None if row is None else row.issues_json
 
     # ----- clinical notes -----
 
@@ -341,19 +494,20 @@ class Repositories:
     def transaction(self) -> _TxContext:
         return _TxContext(self)
 
+    async def ping(self) -> bool:
+        """Readiness probe: True iff the database answers ``SELECT 1``."""
+        try:
+            async with self._session_factory() as session:
+                await session.execute(text("SELECT 1"))
+            return True
+        except Exception:  # readiness boundary: any DB error means "not ready"
+            return False
+
     async def load_case(self, case_id: uuid.UUID) -> PersistedCase | None:
         """Read-only load for crash-resume (own short session)."""
         async with self._session_factory() as session:
             row = await session.get(Case, case_id)
-            if row is None:
-                return None
-            return PersistedCase(
-                id=row.id,
-                status=row.status,
-                state_json=row.state_json,
-                last_node=row.last_node,
-                failure_json=row.failure_json,
-            )
+            return None if row is None else _case_view(row)
 
     async def load_redacted_note(self, case_id: uuid.UUID) -> str | None:
         """Read-only load of the redacted note for state rehydration."""
@@ -368,14 +522,140 @@ class Repositories:
             row = (
                 await session.execute(select(Case).where(Case.idempotency_key == key))
             ).scalar_one_or_none()
+            return None if row is None else _case_view(row)
+
+    # ----- read views for the API -----
+
+    async def draft_latest(self, case_id: uuid.UUID) -> PersistedDraft | None:
+        async with self._session_factory() as session:
+            row = (
+                await session.execute(
+                    select(DraftRow)
+                    .where(DraftRow.case_id == case_id)
+                    .order_by(DraftRow.revision.desc())
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
             if row is None:
                 return None
-            return PersistedCase(
-                id=row.id,
+            return PersistedDraft(
+                revision=row.revision,
+                draft_json=row.draft_json,
+                unverified=row.unverified,
+                open_issues_json=row.open_issues_json,
+            )
+
+    async def cad_load(self, case_id: uuid.UUID) -> PersistedCad | None:
+        async with self._session_factory() as session:
+            row = await session.get(CadResultRow, case_id)
+            if row is None:
+                return None
+            return PersistedCad(cad_json=row.cad_json, raw_vision_json=row.raw_vision_json)
+
+    async def reviews_for_case(self, case_id: uuid.UUID) -> list[PersistedReview]:
+        async with self.transaction() as tx:
+            return await tx.reviews_for_case(case_id)
+
+    async def reason_code_counts(
+        self, *, knowledge_codes: tuple[str, ...]
+    ) -> tuple[dict[str, int], int, int]:
+        """(per-code counts, #reviews carrying codes, #reviews citing any
+        knowledge code) over the append-only reviews table."""
+        async with self._session_factory() as session:
+            # constant SQL (no user input): explode the JSONB code arrays laterally
+            per_code = (
+                await session.execute(
+                    text(
+                        "SELECT code, count(*) FROM reviews, "
+                        "LATERAL jsonb_array_elements_text(reviews.reason_codes) AS code "
+                        "GROUP BY code"
+                    )
+                )
+            ).all()
+            has_codes = func.jsonb_array_length(ReviewRow.reason_codes) > 0
+            total = (
+                await session.execute(select(func.count()).select_from(ReviewRow).where(has_codes))
+            ).scalar_one()
+            knowledge = (
+                await session.execute(
+                    select(func.count())
+                    .select_from(ReviewRow)
+                    .where(ReviewRow.reason_codes.op("?|")(pg_array(list(knowledge_codes))))
+                )
+            ).scalar_one()
+        return {str(c): int(n) for c, n in per_code}, int(total), int(knowledge)
+
+    # ----- job queue (ARCHITECTURE.md §5.2: the jobs table IS the queue) -----
+
+    async def jobs_enqueue(self, case_id: uuid.UUID) -> None:
+        """Idempotent: a case has at most one job row."""
+        async with self._session_factory() as session, session.begin():
+            await session.execute(
+                pg_insert(JobRow)
+                .values(case_id=case_id, status="queued", attempts=0)
+                .on_conflict_do_nothing(index_elements=[JobRow.case_id])
+            )
+
+    async def jobs_claim(self, worker_id: str) -> uuid.UUID | None:
+        """Claim the oldest runnable job (``FOR UPDATE SKIP LOCKED``): two
+        workers never claim the same job; a crashed claim is reclaimed by
+        ``jobs_requeue_stale``."""
+        now = datetime.now(UTC)
+        async with self._session_factory() as session, session.begin():
+            row = (
+                await session.execute(
+                    select(JobRow)
+                    .where(
+                        JobRow.status == "queued",
+                        or_(JobRow.run_at.is_(None), JobRow.run_at <= now),
+                    )
+                    .order_by(JobRow.at)
+                    .limit(1)
+                    .with_for_update(skip_locked=True)
+                )
+            ).scalar_one_or_none()
+            if row is None:
+                return None
+            row.status = "running"
+            row.claimed_by = worker_id
+            row.attempts += 1
+            row.at = now  # claim time doubles as the staleness heartbeat
+            return row.case_id
+
+    async def jobs_finish(self, case_id: uuid.UUID, *, status: str) -> None:
+        async with self._session_factory() as session, session.begin():
+            await session.execute(
+                update(JobRow).where(JobRow.case_id == case_id).values(status=status)
+            )
+
+    async def jobs_retry(self, case_id: uuid.UUID, *, delay: timedelta) -> None:
+        async with self._session_factory() as session, session.begin():
+            await session.execute(
+                update(JobRow)
+                .where(JobRow.case_id == case_id)
+                .values(status="queued", claimed_by=None, run_at=datetime.now(UTC) + delay)
+            )
+
+    async def jobs_requeue_stale(self, *, older_than: timedelta) -> int:
+        cutoff = datetime.now(UTC) - older_than
+        async with self._session_factory() as session, session.begin():
+            result = await session.execute(
+                update(JobRow)
+                .where(JobRow.status == "running", JobRow.at < cutoff)
+                .values(status="queued", claimed_by=None)
+            )
+            return int(getattr(result, "rowcount", 0) or 0)
+
+    async def job_get(self, case_id: uuid.UUID) -> PersistedJob | None:
+        async with self._session_factory() as session:
+            row = await session.get(JobRow, case_id)
+            if row is None:
+                return None
+            return PersistedJob(
+                case_id=row.case_id,
                 status=row.status,
-                state_json=row.state_json,
-                last_node=row.last_node,
-                failure_json=row.failure_json,
+                attempts=row.attempts,
+                claimed_by=row.claimed_by,
             )
 
 
