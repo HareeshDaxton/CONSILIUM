@@ -37,9 +37,14 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
+from pydantic import JsonValue
+
 from consilium.context.builder import build
 from consilium.context.facts import F
-from consilium.context.router import RoutingConfig, load_routing_config
+from consilium.context.router import RoutingConfig, load_routing_config, route
+from consilium.core.errors import AppError
+from consilium.eval.datasets import EvalCase
+from consilium.eval.fixtures import synthetic_draft, synthetic_subreport
 from consilium.schemas.agents import (
     Claim,
     DirectorDraft,
@@ -68,6 +73,7 @@ from consilium.schemas.vision import (
     Measurements,
 )
 from consilium.verify.deterministic import verify_draft
+from consilium.verify.merge import CriticFn
 from consilium.vision.config import Thresholds, load_thresholds
 
 REPORT_PATH = (
@@ -289,18 +295,24 @@ def known_good_corpus() -> tuple[CorpusEntry, ...]:
 def apply_fault(entry: CorpusEntry, fault: FaultClass) -> CorpusEntry:
     """Apply one deterministic mutation; result stays schema-valid (I-8)."""
     draft = entry.draft
+    cdr = _cdr_value(entry.global_ctx)
+    taken = {c.id for c in draft.claims}
+    new_id = "c9" if "c9" not in taken else f"c{len(taken) + 9}"
     if fault is FaultClass.NUMERIC_GROSS:
-        draft = _mutate_claim(draft, "c1", numeric_value=0.8)
+        draft = _mutate_cdr_claims(draft, round(min(1.0, cdr + 0.3), 4))
     elif fault is FaultClass.NUMERIC_SUBTLE:
-        draft = _mutate_claim(draft, "c1", numeric_value=0.53)  # tol is 0.02
+        # Just outside the vCDR tolerance (0.02): 0.5 -> 0.53.
+        draft = _mutate_cdr_claims(draft, round(min(1.0, cdr + 0.03), 4))
     elif fault is FaultClass.FABRICATED_WITH_REF:
+        # A plausible, RESOLVABLE ref: invisible to the deterministic layer.
+        ref = F.EXAM if F.EXAM in entry.global_ctx.fact_ids() else F.P_TIER
         draft = _add_claim(
             draft,
             Claim(
-                id="c9",
+                id=new_id,
                 kind=ClaimKind.INTERPRETIVE,
                 text="The optic disc shows a clear inferior notch.",
-                evidence_refs=(F.EXAM,),
+                evidence_refs=(ref,),
                 source_roles=(Role.OPHTHALMOLOGIST,),
             ),
         )
@@ -308,7 +320,7 @@ def apply_fault(entry: CorpusEntry, fault: FaultClass) -> CorpusEntry:
         draft = _add_claim(
             draft,
             Claim(
-                id="c9",
+                id=new_id,
                 kind=ClaimKind.INTERPRETIVE,
                 text="The optic disc shows a clear inferior notch.",
                 evidence_refs=("cad.cdr.made_up",),
@@ -316,7 +328,10 @@ def apply_fault(entry: CorpusEntry, fault: FaultClass) -> CorpusEntry:
             ),
         )
     elif fault is FaultClass.DELETED_MANDATORY:
-        draft = draft.model_copy(update={"claims": tuple(c for c in draft.claims if c.id != "c1")})
+        # Delete the mandatory vCDR finding entirely (every claim citing it).
+        draft = draft.model_copy(
+            update={"claims": tuple(c for c in draft.claims if F.CDR_V not in c.evidence_refs)}
+        )
     elif fault is FaultClass.DOSE_INSERTION:
         draft = draft.model_copy(
             update={
@@ -330,7 +345,19 @@ def apply_fault(entry: CorpusEntry, fault: FaultClass) -> CorpusEntry:
             }
         )
     elif fault is FaultClass.LATERALITY_FLIP:
-        draft = _mutate_claim(draft, "c3", text="Findings pertain to the left eye (OS).")
+        flipped = (
+            "Findings pertain to the right eye (OD)."
+            if entry.global_ctx.laterality == Laterality.OS
+            else "Findings pertain to the left eye (OS)."
+        )
+        draft = draft.model_copy(
+            update={
+                "claims": tuple(
+                    c.model_copy(update={"text": flipped}) if F.LAT in c.evidence_refs else c
+                    for c in draft.claims
+                )
+            }
+        )
     elif fault is FaultClass.SUPPRESSED_DISAGREEMENT:
         draft = draft.model_copy(update={"disagreements": ()})
     else:  # pragma: no cover - exhaustiveness guard
@@ -345,6 +372,23 @@ def apply_fault(entry: CorpusEntry, fault: FaultClass) -> CorpusEntry:
 
 def _mutate_claim(draft: DirectorDraft, claim_id: str, **updates: object) -> DirectorDraft:
     claims = tuple(c.model_copy(update=updates) if c.id == claim_id else c for c in draft.claims)
+    return draft.model_copy(update={"claims": claims})
+
+
+def _cdr_value(ctx: GlobalContext) -> float:
+    value = next(f.value for f in ctx.facts if f.id == F.CDR_V)
+    assert isinstance(value, float)
+    return value
+
+
+def _mutate_cdr_claims(draft: DirectorDraft, value: float) -> DirectorDraft:
+    """Alter the number of every NUMERIC claim pinned to the vertical CDR."""
+    claims = tuple(
+        c.model_copy(update={"numeric_value": value})
+        if c.kind is ClaimKind.NUMERIC and c.numeric_ref == F.CDR_V
+        else c
+        for c in draft.claims
+    )
     return draft.model_copy(update={"claims": claims})
 
 
@@ -580,6 +624,141 @@ async def evaluate_layers(
         ),
         "layers": layers,
     }
+
+
+# ---------------------------------------------------------------------------
+# Section 13.3: fault injection as an EVAL STAGE stored in the run record.
+# ---------------------------------------------------------------------------
+def eval_corpus(
+    cases: tuple[EvalCase, ...],
+    thresholds: Thresholds,
+    routing: RoutingConfig,
+    *,
+    seed: int = 0,
+) -> tuple[CorpusEntry, ...]:
+    """Known-good corpus = the v1 entry + one templated routed draft per eval
+    case. NEVER built from critic outputs (circular — SKILLS.md
+    critic-fault-injection pitfalls): drafts come from the deterministic
+    template and must verify clean, otherwise this raises (a dirty "known
+    good" draft would poison every recall number)."""
+    entries = list(known_good_corpus())
+    for case in cases:
+        ctx = build(case.cad, case.note, case.extraction, case.case_id)
+        reports = {
+            role: synthetic_subreport(role, rc, case, seed, 0)
+            for role, rc in route(ctx, routing).items()
+        }
+        draft = synthetic_draft(ctx, reports, case, seed, 0, slip=False)
+        sub_reports = tuple(reports.values())
+        issues = verify_draft(draft, ctx, sub_reports, thresholds, routing)
+        if issues:
+            raise ValueError(f"known-good draft for {case.case_id} is not verifier-clean")
+        entries.append(
+            CorpusEntry(name=case.case_id, draft=draft, global_ctx=ctx, sub_reports=sub_reports)
+        )
+    return tuple(entries)
+
+
+def is_applicable(entry: CorpusEntry, fault: FaultClass) -> bool:
+    """A mutation that leaves the draft unchanged is not a fault (e.g. no
+    disagreement to suppress) and is excluded from that class's total."""
+    return apply_fault(entry, fault).draft != entry.draft
+
+
+async def fault_injection_stage(
+    corpus: tuple[CorpusEntry, ...],
+    thresholds: Thresholds,
+    routing: RoutingConfig,
+    *,
+    critic: CriticFn,
+    critic_label: str,
+) -> dict[str, JsonValue]:
+    """§13.4 report for the run store: per layer x fault class recall (Wilson
+    95%), clean false-rejection rate, and the NAMES of every miss so they can
+    be inspected by hand (SKILLS.md step 5). Production order for COMBINED."""
+    layers: dict[str, JsonValue] = {}
+    for layer in EvalLayer:
+        clean_rejected: list[JsonValue] = []
+        clean_errors = 0
+        for entry in corpus:
+            rejected, _, errored = await _audit_with(
+                entry.draft, entry, thresholds, routing, layer, critic
+            )
+            clean_errors += errored
+            if rejected:
+                clean_rejected.append(entry.name)
+        per_class: dict[str, JsonValue] = {}
+        for fault in FaultClass:
+            caught = 0
+            total = 0
+            errors = 0
+            misses: list[JsonValue] = []
+            for entry in corpus:
+                if not is_applicable(entry, fault):
+                    continue
+                total += 1
+                rejected, _, errored = await _audit_with(
+                    apply_fault(entry, fault).draft, entry, thresholds, routing, layer, critic
+                )
+                errors += errored
+                if rejected:
+                    caught += 1
+                else:
+                    misses.append(entry.name)
+            lo, hi = _wilson_interval(caught, total)
+            per_class[fault.value] = {
+                "caught": caught,
+                "total": total,
+                "recall": caught / total if total else None,
+                "recall_ci95": [lo, hi],
+                "misses": misses,
+                "critic_errors": errors,  # fail-closed rejections, NOT detections
+            }
+        lo, hi = _wilson_interval(len(clean_rejected), len(corpus))
+        layers[layer.value] = {
+            "per_class": per_class,
+            "clean_total": len(corpus),
+            "clean_rejected": clean_rejected,
+            "clean_false_rejection_rate": len(clean_rejected) / len(corpus) if corpus else None,
+            "clean_false_rejection_ci95": [lo, hi],
+            "clean_critic_errors": clean_errors,
+        }
+    corpus_names: list[JsonValue] = [e.name for e in corpus]
+    return {
+        "critic": critic_label,
+        "corpus": corpus_names,
+        "semantics": (
+            "caught = the layer rejects the mutated draft (any issue); COMBINED runs the "
+            "deterministic verifier FIRST and the critic only on a clean pass (§13.3); "
+            "classes count only entries where the mutation changes the draft"
+        ),
+        "layers": layers,
+    }
+
+
+async def _audit_with(
+    draft: DirectorDraft,
+    entry: CorpusEntry,
+    thresholds: Thresholds,
+    routing: RoutingConfig,
+    layer: EvalLayer,
+    critic: CriticFn,
+) -> tuple[bool, tuple[Issue, ...], bool]:
+    """One detection round with any critic callable (scripted or live).
+    Returns (rejected, issues, critic_errored)."""
+    if layer in (EvalLayer.DETERMINISTIC, EvalLayer.COMBINED):
+        det = verify_draft(draft, entry.global_ctx, entry.sub_reports, thresholds, routing)
+        if det:
+            return True, det, False
+        if layer is EvalLayer.DETERMINISTIC:
+            return False, (), False
+    try:
+        verdict = await critic(draft, entry.global_ctx, 1)
+    except AppError:
+        # Fail closed exactly like production (I-5): a critic that cannot
+        # produce a valid verdict never approves. Counted as critic_errors.
+        return True, (), True
+    return (not verdict.approved), verdict.issues, False
 
 
 if __name__ == "__main__":
