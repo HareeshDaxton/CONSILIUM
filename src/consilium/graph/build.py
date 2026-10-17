@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 import uuid
 from collections.abc import Callable, Hashable
 from typing import Any, TypedDict, cast
@@ -29,6 +30,7 @@ from consilium.graph import edges
 from consilium.graph.deps import Deps
 from consilium.graph.nodes import NODES, NodeSpec, invoke
 from consilium.graph.state import CaseState, FailureRecord
+from consilium.observability.metrics import observe_node
 from consilium.persistence.repositories import Repositories, RepoTx
 from consilium.schemas.enums import CaseStatus, Laterality
 
@@ -85,8 +87,16 @@ class GraphRunner:
     def _wrap(self, spec: NodeSpec) -> Callable[[_GState], Any]:
         async def node(gs: _GState) -> _GState:
             prev = gs["state"]
+            started = time.monotonic()
             out = await invoke(spec, prev, self._deps)
             out = await self._persist(spec.name, prev, out)
+            observe_node(
+                spec.name,
+                time.monotonic() - started,
+                prev.status,
+                out.status,
+                out.verdict if out.verdict != prev.verdict else None,
+            )
             if self._hook is not None:
                 self._hook(spec.name, out)
             return {"state": out}
