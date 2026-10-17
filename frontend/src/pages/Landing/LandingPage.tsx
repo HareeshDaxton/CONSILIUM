@@ -1,13 +1,16 @@
-import { Suspense, lazy, useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { useSession } from "../../auth/session";
 import { Brand } from "../../components/BrandMark";
+import { EASE, ScrollTrigger, gsap, prefersReducedMotion } from "../../motion/gsap";
+import { useScrollReveal } from "../../motion/reveal";
+import { MaskLines, Words } from "../../motion/Text";
 
 const LandingScene = lazy(() => import("./LandingScene"));
 
-// Public landing page: a scroll-driven 3D story of the pipeline. Copy follows
-// the project contract — screening support, not diagnosis (I-12), and no
+// Public landing page: a scroll-driven story of the pipeline. Copy follows the
+// project contract — screening support, not diagnosis (I-12), and no
 // performance claim that is not backed by a stored evaluation run (I-11).
 
 const CHAPTERS: readonly { id: string; label: string }[] = [
@@ -19,25 +22,32 @@ const CHAPTERS: readonly { id: string; label: string }[] = [
   { id: "start", label: "Start" },
 ];
 
-function useReveal(root: React.RefObject<HTMLElement>) {
-  useEffect(() => {
-    const host = root.current;
-    if (!host) return undefined;
-    const targets = host.querySelectorAll<HTMLElement>("[data-reveal]");
-    if (!("IntersectionObserver" in window)) {
-      targets.forEach((t) => t.classList.add("is-visible"));
-      return undefined;
-    }
-    const io = new IntersectionObserver(
-      (entries) => {
-        for (const e of entries) if (e.isIntersecting) e.target.classList.add("is-visible");
-      },
-      { threshold: 0.2 },
-    );
-    targets.forEach((t) => io.observe(t));
-    return () => io.disconnect();
-  }, [root]);
-}
+const ROLES = [
+  {
+    n: "01",
+    name: "Ophthalmologist",
+    sees: "Cup-to-disc measurements, screening tier, image quality, the referral findings.",
+    does: "Interprets structure and risk. Never states a stage unless the note does.",
+  },
+  {
+    n: "02",
+    name: "Optometrist",
+    sees: "Tier, vertical CDR, quality flags, pressures and exam findings.",
+    does: "Proposes the examination pathway: visual field, OCT, gonioscopy, timing.",
+  },
+  {
+    n: "03",
+    name: "Pharmacist",
+    sees: "Medications, intolerances, comorbidities — never the segmentation.",
+    does: "Flags drug-class safety for prescriber judgement. No doses, no regimens.",
+  },
+] as const;
+
+const AUDIT = [
+  ["Verifier", "Every number is compared to the measurement it cites. Every reference must resolve. Unsafe wording is refused."],
+  ["Critic", "A separate model asks one question per claim: is this supported by its evidence?"],
+  ["Bounded loop", "Up to three revisions. A draft that still fails is shown as UNVERIFIED — never quietly passed."],
+] as const;
 
 export function LandingPage() {
   const { me } = useSession();
@@ -46,20 +56,21 @@ export function LandingPage() {
   const progress = useRef(0);
   const [active, setActive] = useState(0);
   const [scrolled, setScrolled] = useState(false);
-  useReveal(root);
+  useScrollReveal(root);
 
-  // Chapter progress: i + fraction through section i (measured, so sections
-  // may be taller than the viewport on small screens).
+  // Chapter progress for the 3D scene + the rail: i + fraction through section i.
   useEffect(() => {
     let raf = 0;
     const measure = () => {
       raf = 0;
       const mid = window.scrollY + window.innerHeight * 0.5;
-      const tops = sections.current.map((el) => (el ? el.offsetTop + el.offsetHeight * 0.5 : 0));
+      const centres = sections.current.map((el) =>
+        el ? el.getBoundingClientRect().top + window.scrollY + el.offsetHeight * 0.5 : 0,
+      );
       let p = 0;
-      for (let i = 0; i < tops.length - 1; i += 1) {
-        const a = tops[i]!;
-        const b = tops[i + 1]!;
+      for (let i = 0; i < centres.length - 1; i += 1) {
+        const a = centres[i]!;
+        const b = centres[i + 1]!;
         if (mid >= b) p = i + 1;
         else if (mid > a) {
           p = i + (mid - a) / Math.max(b - a, 1);
@@ -80,6 +91,122 @@ export function LandingPage() {
       cancelAnimationFrame(raf);
       window.removeEventListener("scroll", onScroll);
       window.removeEventListener("resize", onScroll);
+    };
+  }, []);
+
+  // Page-specific choreography (shared reveals come from useScrollReveal).
+  useLayoutEffect(() => {
+    const host = root.current;
+    if (!host || prefersReducedMotion()) return undefined;
+    let settle: (() => void) | null = null;
+    const ctx = gsap.context(() => {
+      // Hero: intro on load, then lifts away as the story begins.
+      gsap.from(".hero-meta > *", { autoAlpha: 0, y: 24, duration: 1.2, ease: EASE.out, stagger: 0.1, delay: 0.5 });
+      gsap.to(".hero-inner", {
+        yPercent: -18,
+        autoAlpha: 0,
+        ease: "none",
+        scrollTrigger: { trigger: "#top", start: "top top", end: "bottom 15%", scrub: true },
+      });
+
+      // Reading progress: a hairline across the top of the page.
+      gsap.fromTo(
+        ".scroll-progress",
+        { scaleX: 0 },
+        { scaleX: 1, ease: "none", scrollTrigger: { start: 0, end: "max", scrub: 0.3 } },
+      );
+
+      // Chapter cards open from a slit as they arrive (scrubbed, reversible).
+      host.querySelectorAll<HTMLElement>(".chapter-body").forEach((card) => {
+        gsap.fromTo(
+          card,
+          { clipPath: "inset(18% 6% 18% 6% round 28px)", autoAlpha: 0.2, y: 60 },
+          {
+            clipPath: "inset(0% 0% 0% 0% round 28px)",
+            autoAlpha: 1,
+            y: 0,
+            ease: "none",
+            scrollTrigger: { trigger: card, start: "top 92%", end: "top 45%", scrub: 0.7 },
+          },
+        );
+      });
+
+      // Velocity skew: content leans with scroll speed, settles when it stops.
+      const skewTargets = host.querySelectorAll(".chapter-body, .role-card, .manifesto-text");
+      const skewTo = gsap.quickTo(skewTargets, "skewY", { duration: 0.6, ease: "power3.out" });
+      const clamp = gsap.utils.clamp(-3.5, 3.5);
+      ScrollTrigger.create({ onUpdate: (self) => skewTo(clamp(self.getVelocity() / -450)) });
+      settle = () => skewTo(0);
+      ScrollTrigger.addEventListener("scrollEnd", settle);
+
+      const mm = gsap.matchMedia();
+      // Isolation: a pinned horizontal track on wide screens.
+      mm.add("(min-width: 900px)", () => {
+        const track = host.querySelector<HTMLElement>(".roles-track");
+        if (!track) return;
+        const distance = () => track.scrollWidth - track.clientWidth;
+        gsap.to(track, {
+          x: () => -distance(),
+          ease: "none",
+          scrollTrigger: {
+            trigger: "#isolation",
+            start: "top top",
+            end: () => `+=${distance() + window.innerHeight * 0.4}`,
+            pin: true,
+            scrub: 0.8,
+            invalidateOnRefresh: true,
+          },
+        });
+        // Depth: each card drifts at its own rate while the track is pinned.
+        gsap.utils.toArray<HTMLElement>(".role-card").forEach((card, i) => {
+          gsap.fromTo(
+            card,
+            { y: 40 + i * 30, rotate: i % 2 ? 1.5 : -1.5 },
+            {
+              y: -(i * 18),
+              rotate: 0,
+              ease: "none",
+              scrollTrigger: {
+                trigger: "#isolation",
+                start: "top top",
+                end: () => `+=${distance() + window.innerHeight * 0.4}`,
+                scrub: 1,
+                invalidateOnRefresh: true,
+              },
+            },
+          );
+        });
+      });
+
+      // Audit: the spine fills as the steps pass.
+      gsap.fromTo(
+        ".audit-spine-fill",
+        { scaleY: 0 },
+        {
+          scaleY: 1,
+          ease: "none",
+          scrollTrigger: { trigger: ".audit-steps", start: "top 70%", end: "bottom 55%", scrub: true },
+        },
+      );
+
+      // Clinician: counters roll in once.
+      host.querySelectorAll<HTMLElement>("[data-count]").forEach((el) => {
+        const target = Number(el.dataset.count);
+        const state = { v: 0 };
+        gsap.to(state, {
+          v: target,
+          duration: 1.6,
+          ease: EASE.soft,
+          onUpdate: () => {
+            el.textContent = String(Math.round(state.v));
+          },
+          scrollTrigger: { trigger: el, start: "top 85%", once: true },
+        });
+      });
+    }, host);
+    return () => {
+      if (settle) ScrollTrigger.removeEventListener("scrollEnd", settle);
+      ctx.revert();
     };
   }, []);
 
@@ -105,6 +232,8 @@ export function LandingPage() {
         <LandingScene getProgress={getProgress} />
       </Suspense>
       <div className="landing-vignette" aria-hidden="true" />
+      <div className="grain" aria-hidden="true" />
+      <div className="scroll-progress" aria-hidden="true" />
 
       <header className={`landing-nav${scrolled ? " is-scrolled" : ""}`}>
         <Link to="/" className="landing-brand" aria-label="CONSILIUM home">
@@ -148,144 +277,183 @@ export function LandingPage() {
       </nav>
 
       <main>
-        <section id="top" ref={register(0)} className="chapter chapter-hero chapter-left">
-          <div className="chapter-copy">
-            <p className="eyebrow" data-reveal>
+        <section id="top" ref={register(0)} className="hero">
+          <div className="hero-inner">
+            <p className="kicker" data-reveal>
               Glaucoma screening support · research prototype
             </p>
-            <h1 data-reveal style={{ "--d": 1 } as React.CSSProperties}>
-              Screening support
-              <br />
-              <span className="gradient-text">that shows its work.</span>
+            <h1 className="display-xl" data-reveal="mask">
+              <MaskLines lines={["Screening support", <em key="e">that shows its work.</em>]} />
             </h1>
-            <p className="lede" data-reveal style={{ "--d": 2 } as React.CSSProperties}>
-              CONSILIUM reads a retinal fundus image and the referral note, lets three isolated specialist agents
-              reason separately, audits every claim against the measured evidence — and hands the draft to a
-              clinician, who signs the report.
-            </p>
-            <div className="cta-row" data-reveal style={{ "--d": 3 } as React.CSSProperties}>
-              {cta}
-              <button type="button" className="btn btn-glass btn-lg" onClick={() => go("vision")}>
-                See how it works
-              </button>
+            <div className="hero-meta">
+              <p className="lede">
+                One fundus photograph. One referral note. Three specialists who never read each other, an audit of
+                every claim — and a clinician who signs the report.
+              </p>
+              <div className="cta-row">
+                {cta}
+                <button type="button" className="btn btn-glass btn-lg" onClick={() => go("vision")}>
+                  See how it works
+                </button>
+              </div>
             </div>
-            <ul className="pill-row" data-reveal style={{ "--d": 4 } as React.CSSProperties}>
-              <li>Clinician-in-the-loop</li>
-              <li>Evidence-linked claims</li>
-              <li>Fails closed</li>
-            </ul>
           </div>
           <div className="scroll-cue" aria-hidden="true">
             <span />
           </div>
         </section>
 
-        <section id="vision" ref={register(1)} className="chapter chapter-left">
-          <div className="chapter-copy glass" data-reveal>
-            <p className="chapter-index">01 · Vision</p>
-            <h2>From fundus to measurements.</h2>
-            <p>
-              SwinV2 and SegFormer run behind a private endpoint and return raw outputs only. Calibration, the
-              screening tier, the vertical cup-to-disc ratio and mask quality checks are computed in our own code —
-              versioned and testable.
-            </p>
-            <ul className="feature-list">
-              <li>
-                <span className="dot dot-cyan" /> Optic disc and cup segmented, then measured
-              </li>
-              <li>
-                <span className="dot dot-magenta" /> Vertical CDR from mask extents, not an LLM
-              </li>
-              <li>
-                <span className="dot dot-amber" /> Ungradable images stopped at the quality gate
-              </li>
-            </ul>
-            <p className="footnote">Language models never see the image and never produce a number.</p>
-          </div>
+        <section className="manifesto" aria-label="Approach">
+          <p className="manifesto-text" data-words>
+            <Words text="When several AI agents read the same notes, they tend to agree with each other — and their mistakes agree too. CONSILIUM is built the other way round: separate views, audited claims, and a human who is accountable for every word." />
+          </p>
         </section>
 
-        <section id="isolation" ref={register(2)} className="chapter chapter-right">
-          <div className="chapter-copy glass" data-reveal>
-            <p className="chapter-index">02 · Isolation</p>
-            <h2>Three specialists. Three separate views.</h2>
-            <p>
-              A deterministic allowlist router gives the ophthalmologist, optometrist and pharmacist only the facts
-              their role needs. They work in parallel and never read each other — a structural guard against
-              consensus collapse, to be tested by ablation rather than assumed.
+        <section id="vision" ref={register(1)} className="chapter chapter-left">
+          <div className="chapter-grid">
+            <p className="chapter-num" data-parallax="0.25">
+              01
             </p>
-            <div className="role-grid">
-              <div>
-                <span className="dot dot-teal" />
-                <strong>Ophthalmologist</strong>
-                <span>Structure and risk tier</span>
-              </div>
-              <div>
-                <span className="dot dot-sky" />
-                <strong>Optometrist</strong>
-                <span>Tests and follow-up</span>
-              </div>
-              <div>
-                <span className="dot dot-violet" />
-                <strong>Pharmacist</strong>
-                <span>Medication safety, no doses</span>
-              </div>
+            <div className="chapter-body">
+              <p className="kicker" data-reveal>
+                Vision
+              </p>
+              <h2 className="display-l" data-reveal="mask">
+                <MaskLines lines={["From photograph", "to measurement."]} />
+              </h2>
+              <p className="body-l" data-reveal>
+                Two vision models outline the optic disc and cup and estimate risk on a private GPU server. Every
+                number in the report — the cup-to-disc ratio, the screening tier, the quality checks — is then computed
+                in CONSILIUM&apos;s own, versioned code.
+              </p>
+              <ul className="feature-grid" data-stagger>
+                <li>
+                  <span className="feature-dot is-disc" />
+                  <strong>Disc &amp; cup outlined</strong>
+                  <span>Measured from the masks, not described by an LLM.</span>
+                </li>
+                <li>
+                  <span className="feature-dot is-cup" />
+                  <strong>Vertical CDR</strong>
+                  <span>The clinically used height ratio, computed exactly.</span>
+                </li>
+                <li>
+                  <span className="feature-dot is-amber" />
+                  <strong>Quality gate</strong>
+                  <span>Ungradable photographs are stopped with a clear reason.</span>
+                </li>
+              </ul>
+              <p className="footnote" data-reveal>
+                Language models never see the image and never produce a number.
+              </p>
             </div>
           </div>
         </section>
 
-        <section id="audit" ref={register(3)} className="chapter chapter-left">
-          <div className="chapter-copy glass" data-reveal>
-            <p className="chapter-index">03 · Audit</p>
-            <h2>Every claim is checked before anyone reads it.</h2>
-            <p>
-              The Director drafts claims that cite fact IDs and keeps real disagreements visible. A deterministic
-              verifier checks numbers, references, coverage and unsafe wording first; an independent critic model
-              checks entailment second.
+        <section id="isolation" ref={register(2)} className="chapter chapter-roles">
+          <div className="roles-head">
+            <p className="kicker" data-reveal>
+              02 · Isolation
             </p>
-            <ol className="step-list">
-              <li>
-                <strong>Verifier</strong> exact numeric and reference checks
-              </li>
-              <li>
-                <strong>Critic</strong> is each claim supported by its evidence?
-              </li>
-              <li>
-                <strong>Bounded loop</strong> unresolved drafts are flagged <em>UNVERIFIED</em>, never passed
-              </li>
-            </ol>
+            <h2 className="display-l" data-reveal="mask">
+              <MaskLines lines={["Three specialists.", "Three separate views."]} />
+            </h2>
+          </div>
+          <div className="roles-track">
+            {ROLES.map((r) => (
+              <article key={r.name} className="role-card">
+                <span className="role-n">{r.n}</span>
+                <h3>{r.name}</h3>
+                <dl>
+                  <dt>Sees</dt>
+                  <dd>{r.sees}</dd>
+                  <dt>Does</dt>
+                  <dd>{r.does}</dd>
+                </dl>
+              </article>
+            ))}
+            <article className="role-card role-card-note">
+              <p>
+                A deterministic router decides who sees what. They work in parallel and never read each other — a
+                structural guard against consensus collapse, tested by ablation rather than assumed.
+              </p>
+            </article>
+          </div>
+        </section>
+
+        <section id="audit" ref={register(3)} className="chapter chapter-left">
+          <div className="chapter-grid">
+            <p className="chapter-num" data-parallax="0.25">
+              03
+            </p>
+            <div className="chapter-body">
+              <p className="kicker" data-reveal>
+                Audit
+              </p>
+              <h2 className="display-l" data-reveal="mask">
+                <MaskLines lines={["Every claim is checked", "before anyone reads it."]} />
+              </h2>
+              <ol className="audit-steps">
+                <span className="audit-spine" aria-hidden="true">
+                  <span className="audit-spine-fill" />
+                </span>
+                {AUDIT.map(([title, text], i) => (
+                  <li key={title} data-reveal>
+                    <span className="audit-n">0{i + 1}</span>
+                    <div>
+                      <strong>{title}</strong>
+                      <p>{text}</p>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            </div>
           </div>
         </section>
 
         <section id="clinician" ref={register(4)} className="chapter chapter-right">
-          <div className="chapter-copy glass" data-reveal>
-            <p className="chapter-index">04 · Clinician</p>
-            <h2>Nothing is final until a clinician signs.</h2>
-            <p>
-              Review the overlay and the evidence, then approve, edit or reject. Every edit carries a reason code;
-              approved reports are immutable and attributed to the clinician who signed them.
+          <div className="chapter-grid">
+            <p className="chapter-num" data-parallax="0.25">
+              04
             </p>
-            <dl className="fact-row">
-              <div>
-                <dt>3</dt>
-                <dd>isolated specialist agents</dd>
-              </div>
-              <div>
-                <dt>2</dt>
-                <dd>verification layers</dd>
-              </div>
-              <div>
-                <dt>1</dt>
-                <dd>accountable clinician</dd>
-              </div>
-            </dl>
+            <div className="chapter-body">
+              <p className="kicker" data-reveal>
+                Clinician
+              </p>
+              <h2 className="display-l" data-reveal="mask">
+                <MaskLines lines={["Nothing is final", "until a clinician signs."]} />
+              </h2>
+              <p className="body-l" data-reveal>
+                Review the outlines and the evidence, then approve, edit or reject. Every edit carries a reason; a
+                signed report is immutable and carries the name of the clinician who signed it.
+              </p>
+              <dl className="counters" data-stagger>
+                <div>
+                  <dt data-count="3">3</dt>
+                  <dd>isolated specialists</dd>
+                </div>
+                <div>
+                  <dt data-count="2">2</dt>
+                  <dd>verification layers</dd>
+                </div>
+                <div>
+                  <dt data-count="1">1</dt>
+                  <dd>accountable clinician</dd>
+                </div>
+              </dl>
+            </div>
           </div>
         </section>
 
-        <section id="start" ref={register(5)} className="chapter chapter-center">
-          <div className="chapter-copy" data-reveal>
-            <h2 className="display">Built for accountable screening.</h2>
-            <p className="lede">Sign in with your Google account. Access is limited to allowlisted clinicians.</p>
-            <div className="cta-row cta-center">{cta}</div>
+        <section id="start" ref={register(5)} className="finale">
+          <h2 className="display-xl" data-reveal="mask">
+            <MaskLines lines={["Built for", <em key="e">accountable</em>, "screening."]} />
+          </h2>
+          <p className="lede" data-reveal>
+            Sign in with your Google account. Access is limited to allowlisted clinicians.
+          </p>
+          <div className="cta-row cta-center" data-reveal>
+            {cta}
           </div>
         </section>
       </main>
