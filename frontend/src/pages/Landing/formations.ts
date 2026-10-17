@@ -22,19 +22,23 @@ export interface Formation {
 
 const hex = (h: number): RGB => [((h >> 16) & 255) / 255, ((h >> 8) & 255) / 255, (h & 255) / 255];
 
+// One warm family taken from a real fundus photograph — ivory disc, amber
+// retina, ember vessels, burnt outer field. The keys are the formations'
+// semantic roles; every role maps into the same restrained palette (no blues,
+// teals or violets on the landing page).
 export const PALETTE = {
-  deep: hex(0x1d4ed8),
-  sky: hex(0x60a5fa),
-  teal: hex(0x2dd4bf),
-  cyan: hex(0x22d3ee),
-  violet: hex(0xa78bfa),
-  magenta: hex(0xf472d0),
-  amber: hex(0xfbbf24),
-  ember: hex(0xf97316),
-  vessel: hex(0xef4444),
-  mint: hex(0x34d399),
-  paper: hex(0xe2e8f0),
-  slate: hex(0x94a3b8),
+  deep: hex(0x6b3418), // outer field (dim burnt umber)
+  sky: hex(0xa8683a), // secondary field
+  teal: hex(0xf0a35e), // primary: amber
+  cyan: hex(0xf6c58d), // light amber
+  violet: hex(0xd99a66), // muted amber
+  magenta: hex(0xe0703a), // ember
+  amber: hex(0xf2c46d), // gold highlight
+  ember: hex(0xe0703a), // ember
+  vessel: hex(0xc4552b), // vessel red-orange
+  mint: hex(0xf0a35e), // amber
+  paper: hex(0xf7efe2), // ivory (optic disc)
+  slate: hex(0x8a7f70), // warm grey
 } as const;
 
 /** mulberry32: tiny seeded PRNG. */
