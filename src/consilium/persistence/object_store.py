@@ -39,6 +39,9 @@ class ObjectStore(Protocol):
     async def load(self, uri: str) -> bytes: ...
 
     async def exists(self, uri: str) -> bool: ...
+    async def delete(self, uri: str) -> bool:
+        """Remove an object (right-to-erasure only). True if it existed."""
+        ...
 
     def uri_for(self, digest: str, *, prefix: str) -> str: ...
 
@@ -63,6 +66,9 @@ class MemoryObjectStore:
 
     async def exists(self, uri: str) -> bool:
         return uri in self.objects
+
+    async def delete(self, uri: str) -> bool:
+        return self.objects.pop(uri, None) is not None
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,6 +111,18 @@ class FileObjectStore:
 
     async def exists(self, uri: str) -> bool:
         return await asyncio.to_thread(self._path(uri).exists)
+
+    async def delete(self, uri: str) -> bool:
+        path = self._path(uri)
+
+        def _unlink() -> bool:
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                return False
+            return True
+
+        return await asyncio.to_thread(_unlink)
 
 
 def make_object_store(uri: str) -> ObjectStore:
