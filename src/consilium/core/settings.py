@@ -75,6 +75,17 @@ class Settings(BaseSettings):
     jwt_audience: str | None = None
     api_docs_enabled: bool = False  # /docs off unless explicitly enabled (non-prod)
 
+    # ----- Google sign-in (review UI) -----
+    # A verified Google ID token is exchanged for a CONSILIUM session token
+    # (HS* signed with JWT_SECRET). OFF unless GOOGLE_CLIENT_ID is set; the
+    # client ID is public (it is embedded in the web page). Roles come ONLY from
+    # these comma-separated email allowlists — a verified Google account in
+    # neither list is refused (fail closed).
+    google_client_id: str | None = None
+    google_clinicians: str = ""
+    google_submitters: str = ""
+    session_ttl_minutes: int = Field(default=480, ge=5, le=1440)
+
     # ----- Worker (§5.2 Postgres-backed job queue) -----
     worker_poll_interval_s: float = Field(default=1.0, gt=0)
     worker_max_attempts: int = Field(default=3, ge=1)
@@ -96,6 +107,15 @@ class Settings(BaseSettings):
                     f"vision_client_mode='http' requires {', '.join(missing)} "
                     "(fail closed — AGENTS.md §8.0)"
                 )
+        return self
+
+    @model_validator(mode="after")
+    def _check_google_sessions_signable(self) -> Self:
+        if self.google_client_id and not self.jwt_algorithm.startswith("HS"):
+            raise ValueError(
+                "Google sign-in issues HS*-signed session tokens; set JWT_ALGORITHM=HS256 "
+                "(or leave GOOGLE_CLIENT_ID unset when tokens come from an external IdP)"
+            )
         return self
 
     @model_validator(mode="after")
