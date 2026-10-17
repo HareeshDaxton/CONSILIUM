@@ -6,6 +6,7 @@ import { ApiError } from "./api/client";
 import { RequireAuth } from "./auth/RequireAuth";
 import { SessionProvider } from "./auth/session";
 import { AppShell } from "./components/Layout";
+import { SmoothScroll } from "./motion/SmoothScroll";
 import { CaseListPage } from "./pages/CaseList/CaseListPage";
 import { LandingPage } from "./pages/Landing/LandingPage";
 import { LoginPage } from "./pages/Login/LoginPage";
@@ -28,7 +29,9 @@ export function makeQueryClient(): QueryClient {
 
 export function AppRoutes() {
   return (
-    <Routes>
+    <>
+      <SmoothScroll />
+      <Routes>
       <Route path="/" element={<LandingPage />} />
       <Route path="/login" element={<LoginPage />} />
       <Route
@@ -45,7 +48,8 @@ export function AppRoutes() {
         <Route path="/cases/:id/report" element={<ReportPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+      </Routes>
+    </>
   );
 }
 

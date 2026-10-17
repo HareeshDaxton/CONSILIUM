@@ -79,7 +79,9 @@ export function AppShell() {
       </aside>
       <div className="shell-main">
         <main className="content">
-          <Outlet />
+          <div key={location.pathname} className="page-enter">
+            <Outlet />
+          </div>
         </main>
         <footer className="footer">{SCREENING_FOOTER}</footer>
       </div>
