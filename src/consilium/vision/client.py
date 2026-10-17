@@ -19,7 +19,7 @@ import asyncio
 import random
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from consilium.core.errors import VisionFailure
 from consilium.core.logging import get_logger
@@ -35,6 +35,23 @@ class VisionTransient(Exception):
 
     Carries no payloads — detail strings must never contain image data (I-14).
     """
+
+
+@dataclass(frozen=True, slots=True)
+class VisionHealth:
+    """Reachability of the vision server (no image, no case data)."""
+
+    reachable: bool
+    revision: str | None = None
+    device: str | None = None
+    detail: str | None = None
+
+
+@runtime_checkable
+class SupportsHealth(Protocol):
+    """Optional: clients that can report whether their server is reachable."""
+
+    async def health(self) -> VisionHealth: ...
 
 
 class VisionClient(Protocol):
