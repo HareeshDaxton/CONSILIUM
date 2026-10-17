@@ -4238,3 +4238,51 @@ over-rejection fix; laterality-UNKNOWN verifier gap; measured vision metrics.
 V1 is ready for a SUPERVISED PILOT on synthetic/consented research data. It
 is NOT releasable for real patient data until the OPEN items in
 doc/release_checklist.md are signed by named people.
+
+### Section 14.5 — UI redesign: pro scroll motion + simplified main page ✅ DONE (user-directed)
+
+**Goal (user, 2026-10-17):** replace the "basic" UI with a professional
+scroll-motion design; main page = fundus image + optional doctor's report
+(upload PDF/Word/image or paste) + Generate report, nothing technical.
+
+**Done:** art direction "ophthalmic instrument at night" (ink bg, warm paper
+type, fundus-amber accent; Instrument Serif / Geist / Geist Mono; disc/cup
+colours unchanged); `frontend/src/motion/` (GSAP 3.13 + ScrollTrigger, Lenis
+1.3.4 smooth scroll synced to the GSAP ticker, `useScrollReveal` declarative
+reveals: mask lines, stagger, scrubbed words, parallax; all skipped under
+prefers-reduced-motion); landing rebuilt (masked hero, scrubbed manifesto,
+pinned horizontal specialists track, audit spine, counters; 3D particle scene
+kept); main page rebuilt (`NewScreeningPage`): photo box + optional eye chips,
+doctor's report box with IN-BROWSER extraction (`lib/extractText.ts`: pdf.js,
+mammoth .docx, tesseract.js OCR, .txt; lazy chunks; the file + filename never
+leave the browser — only the reviewed text goes into the note → input rail +
+de-identification, I-6/I-14); status pills / pipeline / recent list removed
+(plain notice only when generation is unavailable); route transitions in the
+shell; token-level restyle of every workspace page (dark + warm light).
+Third-party `taste-skill` NOT installed (SKILLS.md rule; unreviewed scripts;
+targets marketing pages) — its discipline applied instead.
+
+**Verified:** tsc clean; vitest 83/83 (main-page tests rewritten: report text
+fills the note, file not uploaded, .doc rejected); `vite build` ok (parsers
+in separate chunks); Playwright screenshots at 1440/1024/390 + dark mode,
+2 review rounds (fixed rail-label overlap, clipped numeral, sticky bar
+overlap on mobile, above-the-fold fit).
+**Not verified:** Playwright walkthrough against the dev stack (labels kept:
+file-input, "Clinical note", "Generate report"); OCR/PDF/Word on real files in
+a browser (tesseract downloads its engine + English data on first use).
+**MANUAL STEPS:** `cd frontend; npm ci; npm run dev`.
+
+**14.5 follow-up (user, same day):** 3D eye recoloured to ONE warm fundus
+family (formations `PALETTE`: ivory disc, amber retina, ember vessels, burnt
+outer field, warm starfield; no blue/teal/violet on landing; brand mark and
+avatar gradients follow). `scene.ts` rewritten: GPU morph (A/B formation
+attributes, per-point STAGGERED transition, mid-flight burst + swirl,
+scroll-velocity scatter that settles, arc travel between sides, breathing
+scale), crisp points (hard core + halo, depth fade), DPR up to 2.5, stronger
+cursor-following eye. Landing adds a scroll-progress hairline, clip-path
+"slit" reveals of chapter cards (scrubbed), velocity skew that settles on
+scrollEnd (listener removed on unmount), depth/tilt drift of role cards in
+the pinned track. Sign-in page rebuilt: same 3D eye (stage 0) on the right,
+masked "Sign in" title + staggered card on the left, warm token form; all
+test hooks kept. Verified: tsc clean, vitest 83/83, build ok, screenshots
+(hero, mid-transition burst, isolation, sign-in) reviewed at 1440/390.
