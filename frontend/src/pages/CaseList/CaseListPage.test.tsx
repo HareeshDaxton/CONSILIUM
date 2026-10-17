@@ -6,7 +6,9 @@ import me from "../../test/fixtures/me_clinician.json";
 import { createMockApi } from "../../test/mockApi";
 import { renderSignedIn } from "../../test/renderApp";
 
-const listCalls = (calls: { url: URL }[]) => calls.filter((c) => c.url.pathname === "/v1/cases");
+// The main list request (limit 50); queue-count requests use limit 200.
+const listCalls = (calls: { url: URL }[]) =>
+  calls.filter((c) => c.url.pathname === "/v1/cases" && c.url.searchParams.get("limit") === "50");
 
 describe("case list", () => {
   it("renders rows with status badges and the UNVERIFIED tag", async () => {
@@ -50,5 +52,12 @@ describe("case list", () => {
     await renderSignedIn("/cases?queue=approved", fetchImpl);
     expect(await screen.findByRole("button", { name: "Approved", pressed: true })).toBeInTheDocument();
     expect(listCalls(calls)[0]!.url.searchParams.getAll("status")).toEqual(["APPROVED", "APPROVED_WITH_EDITS"]);
+  });
+
+  it("queue cards show the server's row count per filter", async () => {
+    const { fetchImpl } = createMockApi({ "GET /v1/me": me, "GET /v1/cases": caseList });
+    await renderSignedIn("/cases", fetchImpl);
+    expect(await screen.findByTestId("count-review")).toHaveTextContent(String(caseList.items.length));
+    expect(screen.getByTestId("count-failed")).toHaveTextContent(String(caseList.items.length));
   });
 });
