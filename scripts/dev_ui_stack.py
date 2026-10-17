@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import dataclasses
 import importlib.util
 import json
 import os
@@ -44,13 +45,14 @@ for extra in (REPO / "tests" / "integration", REPO / "scripts", REPO):
 
 import httpx  # noqa: E402
 import uvicorn  # noqa: E402
+from dotenv import dotenv_values  # noqa: E402
 from graph_kit import IMAGE, NOTE_TEXT, REJECT, clean_draft, expected_ctx, fake_llm  # noqa: E402
 from sqlalchemy import text  # noqa: E402
 from sqlalchemy.ext.asyncio import create_async_engine  # noqa: E402
 from tests.api_kit import PIN, make_app_deps  # noqa: E402
 
 from consilium.api.auth import ApiRole, issue_token  # noqa: E402
-from consilium.api.deps import AppDeps  # noqa: E402
+from consilium.api.deps import AppDeps, build_google_verifier  # noqa: E402
 from consilium.api.main import create_app  # noqa: E402
 from consilium.core.settings import Settings  # noqa: E402
 from consilium.jobs.worker import Worker  # noqa: E402
@@ -75,14 +77,25 @@ SCENARIOS = ("approve", "reject", "unverified", "failed")
 APPROVE_VERDICT: dict[str, Any] = {"approved": True, "issues": [], "round": 1}
 
 
+def _env(name: str) -> str | None:
+    """Process env first, then the repo ``.env`` (only these named keys are read)."""
+    dotenv = REPO / ".env"
+    value = os.environ.get(name) or (dotenv_values(dotenv).get(name) if dotenv.exists() else None)
+    return value or None
+
+
 def dev_settings(database_url: str) -> Settings:
     return Settings(
         _env_file=None,
         OPENAI_API_KEY="unused-offline-fake-llm",
         DATABASE_URL=database_url,
-        JWT_SECRET=os.environ.get("JWT_SECRET") or COMPOSE_DEV_SECRET,
-        FIELD_ENCRYPTION_KEY=os.environ.get("FIELD_ENCRYPTION_KEY") or DEV_FIELD_KEY,
+        JWT_SECRET=_env("JWT_SECRET") or COMPOSE_DEV_SECRET,
+        FIELD_ENCRYPTION_KEY=_env("FIELD_ENCRYPTION_KEY") or DEV_FIELD_KEY,
         RAILS_ENGINE="passthrough",
+        # Google sign-in for the UI: live Google token verification when set.
+        GOOGLE_CLIENT_ID=_env("GOOGLE_CLIENT_ID"),
+        GOOGLE_CLINICIANS=_env("GOOGLE_CLINICIANS") or "",
+        GOOGLE_SUBMITTERS=_env("GOOGLE_SUBMITTERS") or "",
     )
 
 
@@ -230,11 +243,18 @@ async def serve(args: argparse.Namespace) -> None:
         print(f"  seeded {name:<10} {case_id}")
     print(f"  clinician token: {info['tokens']['clinician']}")
 
+    google = None if args.no_google else build_google_verifier(settings)
+    served = dataclasses.replace(stack.deps, google=google)
+    print(
+        "  Google sign-in: "
+        + ("ON (allowlists from GOOGLE_CLINICIANS / GOOGLE_SUBMITTERS)" if served.google else "off")
+    )
+
     stop = asyncio.Event()
     worker = Worker(stack.deps.runner, repos, worker_id="dev-ui-worker", poll_interval_s=0.5)
     worker_task = asyncio.create_task(worker.run_forever(stop))
     server = uvicorn.Server(
-        uvicorn.Config(create_app(stack.deps), host=args.host, port=args.port, log_level="warning")
+        uvicorn.Config(create_app(served), host=args.host, port=args.port, log_level="warning")
     )
     try:
         await server.serve()
@@ -250,6 +270,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--admin-url", default=ADMIN_URL)
     parser.add_argument("--out", default=None, help="write tokens + seeded case IDs as JSON")
+    parser.add_argument(
+        "--no-google", action="store_true", help="disable Google sign-in (deterministic e2e runs)"
+    )
     asyncio.run(serve(parser.parse_args(argv)))
     return 0
 
