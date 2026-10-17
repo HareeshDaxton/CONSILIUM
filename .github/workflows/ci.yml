@@ -38,6 +38,43 @@ jobs:
       - name: Schema snapshot check
         run: make schema-check
 
+  security:
+    # Phase 14.2: dependency audit (Python lockfile + frontend prod deps) and
+    # secret scan over the full git history. High/critical findings block.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Python dependency audit — serving/runtime deps (blocking)
+        run: |
+          uv export --frozen --no-default-groups --no-hashes --no-emit-project -o audit-runtime.txt
+          uvx pip-audit -r audit-runtime.txt --progress-spinner off
+
+      - name: Python dependency audit — all groups incl. training (report only)
+        # Known, accepted: transformers<5 (training pin) + diskcache (via dvc);
+        # neither ships in the API image. See doc/threat_model.md §Accepted risks.
+        continue-on-error: true
+        run: |
+          uv export --frozen --all-groups --no-hashes --no-emit-project -o audit-all.txt
+          uvx pip-audit -r audit-all.txt --progress-spinner off
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Frontend dependency audit (production deps, high+)
+        working-directory: frontend
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Secret scan (gitleaks, full history)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   frontend:
     # Review UI gate (Phase 12): typecheck, offline unit tests (mocked API,
     # no network), production build.
