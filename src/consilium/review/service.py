@@ -30,6 +30,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from consilium.context.router import RoutingConfig
 from consilium.core.errors import Forbidden, NotFound, RequestInvalid, StatusConflict
+from consilium.observability.metrics import record_review
 from consilium.persistence.repositories import PersistedReview, Repositories
 from consilium.review.diff import Change, diff_drafts
 from consilium.review.feedback import Correction, FeedbackStore, PostgresFeedbackStore
@@ -282,6 +283,7 @@ async def review(
                 "changed_fields": len(changes),
             },
         )
+    record_review(cmd.action.value, tuple(c.value for c in cmd.reason_codes))
     return ReviewResult(
         review_id=str(review_id),
         case_id=str(cid),
