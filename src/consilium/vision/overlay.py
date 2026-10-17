@@ -15,6 +15,7 @@ server-side, the browser does no mask math.
 
 from __future__ import annotations
 
+import hashlib
 import io
 from enum import StrEnum
 
@@ -36,6 +37,15 @@ class OverlayLayer(StrEnum):
     IMAGE = "image"
     DISC = "disc"
     CUP = "cup"
+
+
+def overlay_cache_key(case_id: str, disc_rle: str, cup_rle: str, layer: OverlayLayer) -> str:
+    """Object-store key of a cached overlay layer — shared by the API cache and
+    the right-to-erasure job so every cached overlay of a case can be found."""
+    material = f"{case_id}|{disc_rle}|{cup_rle}"
+    if layer != OverlayLayer.COMPOSITE:  # composite keeps its original cache key
+        material += f"|{layer.value}"
+    return hashlib.sha256(material.encode()).hexdigest()
 
 
 def _outline(mask: np.ndarray, width: int) -> np.ndarray:
