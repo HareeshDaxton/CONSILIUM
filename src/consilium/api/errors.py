@@ -39,6 +39,7 @@ PROBLEM_STATUS: dict[str, int] = {
     "method-not-allowed": 405,
     "payload-too-large": 413,
     "internal": 500,
+    "service-unavailable": 503,
 }
 
 _HTTP_TO_TYPE: dict[int, str] = {
