@@ -1,13 +1,17 @@
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { Suspense, lazy, useLayoutEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 
 import { ApiError } from "../../api/client";
 import { useApi, useSession } from "../../auth/session";
-import { Brand, BrandMark } from "../../components/BrandMark";
+import { Brand } from "../../components/BrandMark";
 import { GoogleSignInButton } from "../../components/GoogleSignInButton";
 import { ProblemMessage } from "../../components/ProblemMessage";
+import { EASE, gsap, prefersReducedMotion } from "../../motion/gsap";
+
+const LandingScene = lazy(() => import("../Landing/LandingScene"));
+const EYE_STAGE = () => 0; // the opening "eye" formation, following the cursor
 
 // Sign-in. Primary: Google (the server verifies the Google ID token, checks the
 // role allowlist and issues a CONSILIUM session token). Secondary: paste an
@@ -21,6 +25,17 @@ export function LoginPage() {
   const [token, setToken] = useState("");
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const host = root.current;
+    if (!host || prefersReducedMotion()) return undefined;
+    const ctx = gsap.context(() => {
+      gsap.from(".auth-title .line > span", { yPercent: 110, duration: 1.3, ease: EASE.out, delay: 0.15 });
+      gsap.from(".auth-reveal", { autoAlpha: 0, y: 24, duration: 1.1, ease: EASE.out, stagger: 0.08, delay: 0.35 });
+    }, host);
+    return () => ctx.revert();
+  }, []);
   const config = useQuery({
     queryKey: ["auth", "config"],
     queryFn: () => api.authConfig(),
@@ -56,38 +71,40 @@ export function LoginPage() {
   const clientId = config.data?.google_client_id ?? null;
 
   return (
-    <div className="auth-page">
-      <aside className="auth-aside" aria-hidden="true">
-        <div className="auth-orbit">
-          <span className="orbit orbit-1" />
-          <span className="orbit orbit-2" />
-          <span className="orbit orbit-3" />
-          <BrandMark size={96} />
-        </div>
-        <blockquote>
-          “Isolate the reasoning, audit the synthesis, keep a clinician accountable.”
-        </blockquote>
-        <ul>
-          <li>Every claim cites the evidence it rests on</li>
-          <li>Numbers are checked against the measurements</li>
-          <li>Nothing is final without your signature</li>
-        </ul>
-      </aside>
+    <div className="auth-page" ref={root}>
+      <Suspense fallback={<div className="landing-canvas landing-canvas-fallback" aria-hidden="true" />}>
+        <LandingScene getProgress={EYE_STAGE} />
+      </Suspense>
+      <div className="auth-veil" aria-hidden="true" />
+      <div className="grain" aria-hidden="true" />
 
-      <main className="auth-main">
+      <header className="auth-top">
         <Link to="/" className="auth-home" aria-label="CONSILIUM home">
           <Brand />
         </Link>
+        <Link to="/" className="auth-back">
+          Back to overview
+        </Link>
+      </header>
+
+      <main className="auth-main">
         <section className="auth-card">
-          <h1>Sign in</h1>
-          <p className="muted">Clinician review workspace for glaucoma screening support.</p>
+          <p className="kicker auth-reveal">Clinician workspace</p>
+          <h1 className="auth-title">
+            <span className="line">
+              <span>Sign in</span>
+            </span>
+          </h1>
+          <p className="auth-sub auth-reveal">
+            Glaucoma screening support — <em>every report is signed by a clinician.</em>
+          </p>
           {endedReason ? (
             <p className="notice" role="status">
               Session ended (<code>{endedReason}</code>). Sign in again.
             </p>
           ) : null}
 
-          <div className="auth-google">
+          <div className="auth-google auth-reveal">
             {clientId ? (
               <GoogleSignInButton clientId={clientId} onCredential={(c) => void run(() => signInWithGoogle(c))} />
             ) : config.isLoading ? (
@@ -109,7 +126,7 @@ export function LoginPage() {
 
           {error ? <ProblemMessage error={error} context="Sign-in failed" /> : null}
 
-          <details className="auth-token">
+          <details className="auth-token auth-reveal">
             <summary>Use an access token</summary>
             <form onSubmit={onSubmit}>
               <label htmlFor="token">Bearer token</label>
@@ -129,13 +146,18 @@ export function LoginPage() {
             </form>
           </details>
 
-          <p className="hint">
+          <p className="hint auth-reveal">
             Access is limited to allowlisted accounts. Your session is kept in memory only — closing the tab signs
             you out.
           </p>
         </section>
-        <p className="auth-legal">Screening support only — not a diagnosis.</p>
+        <ul className="auth-points auth-reveal">
+          <li>Every claim cites the evidence it rests on</li>
+          <li>Numbers are checked against the measurements</li>
+          <li>Nothing is final without your signature</li>
+        </ul>
       </main>
+      <p className="auth-legal">Screening support only — not a diagnosis.</p>
     </div>
   );
 }
