@@ -122,6 +122,29 @@ services:
         condition: service_started
 
   # ---------------------------------------------------------------------
+  # OPTIONAL observability stack (AGENTS.md §18): `docker compose --profile
+  # observability up -d`. Prometheus scrapes api:8000 + worker:9100 and loads
+  # deploy/observability/alerts.yml; Grafana (http://localhost:3001, admin/admin
+  # on first login — dev only) is provisioned with the CONSILIUM dashboard.
+  prometheus:
+    profiles: ["observability"]
+    image: prom/prometheus:v2.53.0
+    volumes:
+      - ./deploy/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/observability/alerts.yml:/etc/prometheus/alerts.yml:ro
+    ports: ["9090:9090"]
+    depends_on: [api, worker]
+
+  grafana:
+    profiles: ["observability"]
+    image: grafana/grafana:11.1.0
+    volumes:
+      - ./deploy/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports: ["3001:3000"]
+    depends_on: [prometheus]
+
+  # ---------------------------------------------------------------------
   # OPTIONAL: Langfuse self-host (LLM observability, AGENTS.md §18).
   # Recent Langfuse versions need ClickHouse + Redis + blob storage beside
   # Postgres — check the current self-hosting docs before enabling.
