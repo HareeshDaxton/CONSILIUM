@@ -33,12 +33,14 @@ dependencies = [
     "pyyaml>=6.0",
     "jinja2>=3.1",
     # Auth
-    "pyjwt>=2.9",
+    "pyjwt[crypto]>=2.9",  # crypto: RS256 verification of Google ID tokens
     # Observability (OTel traces, Prometheus metrics, Langfuse LLM layer)
     "opentelemetry-api>=1.28",
     "opentelemetry-sdk>=1.28",
     "prometheus-client>=0.21",
     "langfuse>=2.55",
+    "fpdf2>=2.8",
+    "python-docx>=1.1",
 ]
 
 [dependency-groups]
