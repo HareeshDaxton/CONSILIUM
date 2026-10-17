@@ -46,6 +46,21 @@ export type FactValue = string | number | boolean | string[];
 export interface Me {
   sub: string;
   roles: string[];
+  // Display-only profile, present after Google sign-in (never used for authz).
+  email?: string | null;
+  name?: string | null;
+  picture?: string | null;
+}
+
+export interface AuthConfig {
+  google_client_id: string | null;
+}
+
+export interface SessionView {
+  access_token: string;
+  token_type: string;
+  expires_in: number;
+  user: Me;
 }
 
 export interface SubmitResponse {
@@ -75,6 +90,8 @@ export interface CaseView {
   failure: FailureView | null;
   cad_summary: CadSummary | null;
   unverified: boolean;
+  /** Server-decided: the pipeline still has steps to run. */
+  in_progress: boolean;
 }
 
 export interface CaseListItem {
@@ -213,4 +230,51 @@ export interface Problem {
   reason?: string;
   case_id?: string;
   errors?: { loc: string[]; type: string }[];
+}
+
+// ---- system status + screening report (reporting/document.py) ----
+
+export interface SystemStatus {
+  vision: { mode: string; reachable: boolean; revision_ok: boolean; device: string | null; detail: string | null };
+  llm_configured: boolean;
+}
+
+export type ReportState = "approved" | "draft" | "unverified" | "rejected";
+
+export interface MetricRow {
+  label: string;
+  value: string;
+  note: string | null;
+}
+
+export interface ReportDocument {
+  title: string;
+  case_id: string;
+  eye: string;
+  created_at: string | null;
+  generated_at: string;
+  state: ReportState;
+  state_label: string;
+  state_detail: string;
+  approved_by: string | null;
+  approved_at: string | null;
+  version: number | null;
+  reason_codes: string[];
+  draft_revision: number;
+  image_findings: MetricRow[];
+  note_facts: MetricRow[];
+  impression: string;
+  findings: {
+    claim_id: string;
+    text: string;
+    evidence: { fact_id: string; label: string; value: string }[];
+    source_roles: string[];
+    flagged: string[];
+  }[];
+  disagreements: { topic: string; positions: [string, string][]; resolution: string }[];
+  recommendations: { text: string; triggered_by: string[] }[];
+  limitations: string[];
+  open_issues: string[];
+  model_info: MetricRow[];
+  footer: string;
 }
