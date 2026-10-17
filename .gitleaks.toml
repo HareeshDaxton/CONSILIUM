@@ -1,0 +1,8 @@
+# Secret-scan config (Phase 14.2). Default rules + an allowlist for the ONE
+# synthetic, test-only JWT secret in tests/conftest.py (never a real secret).
+[extend]
+useDefault = true
+
+[allowlist]
+description = "synthetic test-only values"
+regexes = ['''test-jwt-secret-synthetic-32-bytes-min''', '''load-test-jwt-secret-synthetic-32-bytes''']
