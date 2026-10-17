@@ -2,7 +2,7 @@
 # All Python tooling runs through `uv run` so it works the same locally and in CI.
 
 .PHONY: setup lint typecheck imports test test-live ci schema-check schema-snapshot \
-        eval-smoke eval-full migrate serve up down \
+        eval-smoke eval-live eval-record eval-full eval-report migrate serve up down \
         ui-install ui-check ui-dev dev-token dev-ui-stack ui-e2e
 
 setup:          ## Install all deps and dev tooling
@@ -32,11 +32,20 @@ schema-check:   ## JSON-Schema snapshot drift check (CI gate)
 schema-snapshot: ## Regenerate JSON-Schema snapshots after an intentional schema change
 	uv run python scripts/schema_snapshot.py
 
-eval-smoke:     ## Small fixed eval set, fake/recorded LLM + recorded vision (Phase 13)
-	@echo "eval-smoke: not implemented until Phase 13" && exit 1
+eval-smoke:     ## S1-S4 on the frozen smoke set (synthetic recorded LLM, offline) -> scored run in data/eval_runs
+	uv run python -m consilium.eval.ablation smoke
 
-eval-full:      ## Full ablation, live LLM + dev endpoint (Phase 13)
-	@echo "eval-full: not implemented until Phase 13" && exit 1
+eval-live:      ## S1-S4 on the frozen synthetic set with the LIVE LLM (OPENAI_API_KEY; costs tokens)
+	uv run python -m consilium.eval.ablation live
+
+eval-record:    ## Freeze the full set ONCE via the vision endpoint: make eval-record SPEC=cases.json
+	uv run python -m consilium.eval.ablation record --spec $(SPEC)
+
+eval-full:      ## Full ablation: recorded full set (data/eval/full_v1.json) + LIVE LLM; stores a run
+	uv run python -m consilium.eval.ablation full
+
+eval-report:    ## Tables from a stored run only: make eval-report RUN=<run_id>
+	uv run python -m consilium.eval.report --run-id $(RUN)
 
 migrate:        ## Alembic migrations (Phase 9)
 	@echo "migrate: not implemented until Phase 9" && exit 1
