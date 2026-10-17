@@ -1,20 +1,23 @@
 // In-memory session (ARCHITECTURE.md §5.1): the bearer token lives in a React
 // ref only — never localStorage/sessionStorage/cookies — so closing or
 // reloading the tab ends the session. Identity and roles come from the
-// server (`GET /v1/me`), never from decoding the token client-side.
+// server (`GET /v1/me`, or the verified Google sign-in response), never from
+// decoding a token client-side.
 
 import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
 import { createApiClient } from "../api/client";
 import type { ApiClient } from "../api/client";
-import type { Me } from "../api/types";
+import type { Me, SessionView } from "../api/types";
+import { disableGoogleAutoSelect } from "./google";
 
 interface Session {
   me: Me | null;
   endedReason: string | null;
   isClinician: boolean;
   login(token: string): Promise<void>;
+  signInWithGoogle(credential: string): Promise<void>;
   logout(reason?: string): void;
 }
 
@@ -36,6 +39,9 @@ export function SessionProvider({
     tokenRef.current = null;
     setMe(null);
     setEndedReason(reason ?? null);
+    // A deliberate sign-out must not be undone by One Tap auto-select; an
+    // expired session (reason given) may silently sign back in.
+    if (!reason) disableGoogleAutoSelect();
   }, []);
 
   const api = useMemo(
@@ -59,15 +65,26 @@ export function SessionProvider({
     [api],
   );
 
+  const signInWithGoogle = useCallback(
+    async (credential: string) => {
+      const view: SessionView = await api.googleSignIn(credential); // server verifies
+      tokenRef.current = view.access_token;
+      setEndedReason(null);
+      setMe(view.user);
+    },
+    [api],
+  );
+
   const session = useMemo<Session>(
     () => ({
       me,
       endedReason,
       isClinician: me?.roles.includes("clinician") ?? false,
       login,
+      signInWithGoogle,
       logout,
     }),
-    [me, endedReason, login, logout],
+    [me, endedReason, login, signInWithGoogle, logout],
   );
 
   return (
