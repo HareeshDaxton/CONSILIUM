@@ -19,7 +19,7 @@ from collections.abc import Mapping
 import numpy as np
 
 from consilium.schemas.vision import RawVisionOutput
-from consilium.vision.client import VisionTransient
+from consilium.vision.client import VisionHealth, VisionTransient
 from consilium.vision.rle import encode_rle
 
 
@@ -80,12 +80,18 @@ class FakeVisionClient:
         always_transient: bool = False,
         force_revision: str | None = None,
     ) -> None:
+        self._revision = force_revision or revision
         self._default = default or build_output(p_raw=0.5, revision=revision)
         self._keyed = dict(keyed or {})
         self._cold_start_calls = cold_start_calls
         self._always_transient = always_transient
         self._force_revision = force_revision
         self.calls = 0
+
+    async def health(self) -> VisionHealth:
+        return VisionHealth(
+            reachable=not self._always_transient, revision=self._revision, device="fake"
+        )
 
     def register(self, image_bytes: bytes, output: RawVisionOutput) -> None:
         self._keyed[hashlib.sha256(image_bytes).hexdigest()] = output
