@@ -22,8 +22,10 @@ from consilium.api.schemas_http import (
     DraftView,
     FactView,
     MeView,
+    SystemStatusView,
     TimelineEvent,
 )
+from consilium.reporting.document import ReportDocument
 from consilium.review.reason_codes import ReasonCode
 from consilium.review.service import ReportView, ReviewResult
 
@@ -42,6 +44,9 @@ MODELS: dict[str, Any] = {
     "reason_codes": list[dict[str, str]],
     "report": ReportView,
     "review_result": ReviewResult,
+    "report_document": ReportDocument,
+    "report_document_unverified": ReportDocument,
+    "system_status": SystemStatusView,
 }
 
 
