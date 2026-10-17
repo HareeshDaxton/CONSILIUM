@@ -5,11 +5,13 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { ApiError } from "./api/client";
 import { RequireAuth } from "./auth/RequireAuth";
 import { SessionProvider } from "./auth/session";
-import { Layout } from "./components/Layout";
-import { CaseDetailPage } from "./pages/CaseDetail/CaseDetailPage";
+import { AppShell } from "./components/Layout";
 import { CaseListPage } from "./pages/CaseList/CaseListPage";
+import { LandingPage } from "./pages/Landing/LandingPage";
 import { LoginPage } from "./pages/Login/LoginPage";
+import { NewScreeningPage } from "./pages/NewScreening/NewScreeningPage";
 import { ReportPage } from "./pages/Report/ReportPage";
+import { ResultPage } from "./pages/Result/ResultPage";
 import { ReviewScreen } from "./pages/ReviewScreen/ReviewScreen";
 
 export function makeQueryClient(): QueryClient {
@@ -27,42 +29,22 @@ export function makeQueryClient(): QueryClient {
 export function AppRoutes() {
   return (
     <Routes>
-      <Route element={<Layout />}>
-        <Route path="/login" element={<LoginPage />} />
-        <Route
-          path="/cases"
-          element={
-            <RequireAuth>
-              <CaseListPage />
-            </RequireAuth>
-          }
-        />
-        <Route
-          path="/cases/:id"
-          element={
-            <RequireAuth>
-              <CaseDetailPage />
-            </RequireAuth>
-          }
-        />
-        <Route
-          path="/cases/:id/review"
-          element={
-            <RequireAuth>
-              <ReviewScreen />
-            </RequireAuth>
-          }
-        />
-        <Route
-          path="/cases/:id/report"
-          element={
-            <RequireAuth>
-              <ReportPage />
-            </RequireAuth>
-          }
-        />
-        <Route path="*" element={<Navigate to="/cases" replace />} />
+      <Route path="/" element={<LandingPage />} />
+      <Route path="/login" element={<LoginPage />} />
+      <Route
+        element={
+          <RequireAuth>
+            <AppShell />
+          </RequireAuth>
+        }
+      >
+        <Route path="/app" element={<NewScreeningPage />} />
+        <Route path="/cases" element={<CaseListPage />} />
+        <Route path="/cases/:id" element={<ResultPage />} />
+        <Route path="/cases/:id/review" element={<ReviewScreen />} />
+        <Route path="/cases/:id/report" element={<ReportPage />} />
       </Route>
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
 }
