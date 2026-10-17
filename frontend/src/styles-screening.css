@@ -234,9 +234,9 @@
   border-radius: 50%;
   display: grid;
   place-items: center;
-  font: 600 0.75rem var(--font-display);
-  color: #04201c;
-  background: linear-gradient(135deg, #2dd4bf, #60a5fa);
+  font: 600 0.75rem var(--font-sans);
+  color: var(--accent-text);
+  background: linear-gradient(135deg, var(--accent-2), var(--accent));
 }
 
 .pipeline-list strong {
@@ -551,4 +551,499 @@
   border-top: 1px solid var(--border);
   font-size: 0.78rem;
   color: var(--muted);
+}
+
+/* =====================================================================
+   INTAKE — the main page (redesign). Two cards + a sticky action bar.
+   ===================================================================== */
+
+.intake {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding-bottom: 7rem;
+}
+
+.intake-head {
+  max-width: 46rem;
+  margin: 1rem 0 2.6rem;
+}
+
+.intake-head h1 {
+  font-size: clamp(2.4rem, 4.6vw, 3.8rem);
+  line-height: 1;
+  letter-spacing: -0.03em;
+  margin: 0.9rem 0 1rem;
+}
+
+.intake-sub {
+  color: var(--muted);
+  font-size: 1.05rem;
+  max-width: 38rem;
+  margin: 0;
+}
+
+.intake-notice {
+  display: inline-block;
+  margin: 1.4rem 0 0;
+  padding: 0.6rem 0.95rem;
+  border-radius: 12px;
+  background: var(--warn-bg);
+  color: var(--warn);
+  font-size: 0.9rem;
+}
+
+.intake-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+  gap: 1.25rem;
+}
+
+.intake-card {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: clamp(1.25rem, 2.4vw, 1.9rem);
+  border-radius: 26px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+}
+
+.intake-card-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.85rem;
+}
+
+.intake-card-head h2 {
+  font-size: 1.7rem;
+  margin: 0;
+}
+
+.intake-step {
+  font: 500 0.72rem var(--font-mono);
+  color: var(--accent);
+  letter-spacing: 0.12em;
+}
+
+.optional {
+  font: 500 0.66rem var(--font-mono);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  padding: 0.15rem 0.5rem;
+  margin-left: 0.4rem;
+  vertical-align: middle;
+}
+
+/* --- drop zones ------------------------------------------------------- */
+
+.intake .dropzone {
+  position: relative;
+  display: grid;
+  place-items: center;
+  border-radius: 20px;
+  border: 1px dashed var(--border-strong);
+  background:
+    radial-gradient(70% 60% at 50% 40%, var(--accent-soft), transparent 70%),
+    var(--surface-2);
+  cursor: pointer;
+  overflow: hidden;
+  transition:
+    border-color 0.4s var(--ease-out),
+    background 0.4s var(--ease-out),
+    transform 0.6s var(--ease-spring);
+}
+
+.intake .dropzone:hover,
+.intake .dropzone.is-over {
+  border-color: var(--accent);
+}
+
+.intake .dropzone.is-over {
+  transform: scale(1.01);
+}
+
+.dropzone-image {
+  aspect-ratio: 1 / 1;
+  max-height: min(420px, 46vh);
+  min-height: 260px;
+}
+
+.dropzone-image.has-file {
+  border-style: solid;
+  background: #000;
+}
+
+.fundus-preview {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  animation: preview-in 0.9s var(--ease-out) both;
+}
+
+@keyframes preview-in {
+  from {
+    opacity: 0;
+    transform: scale(1.06);
+    filter: blur(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+}
+
+.intake .dropzone-empty {
+  display: grid;
+  justify-items: center;
+  gap: 0.35rem;
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.intake .dropzone-empty strong {
+  color: var(--text-strong);
+  font-weight: 500;
+  font-size: 1.05rem;
+  margin-top: 1rem;
+}
+
+/* An optical "lens" that breathes while waiting for the photograph. */
+.lens {
+  position: relative;
+  width: 92px;
+  height: 92px;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+}
+
+.lens::before,
+.lens::after,
+.lens span {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
+}
+
+.lens::before {
+  inset: 14px;
+  border: 1px solid rgba(240, 163, 94, 0.45);
+  animation: breathe 3.2s var(--ease-out) infinite;
+}
+
+.lens::after {
+  inset: 32px;
+  background: radial-gradient(circle, var(--accent-2), var(--accent) 60%, transparent 70%);
+  opacity: 0.9;
+}
+
+.lens span {
+  inset: -1px;
+  border: 1px solid transparent;
+  border-top-color: var(--accent);
+  animation: spin 6s linear infinite;
+}
+
+@keyframes breathe {
+  0%,
+  100% {
+    transform: scale(0.92);
+    opacity: 0.5;
+  }
+  50% {
+    transform: scale(1.04);
+    opacity: 1;
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.dropzone-report {
+  min-height: 7.5rem;
+}
+
+.dropzone-inline {
+  display: grid;
+  justify-items: center;
+  gap: 0.2rem;
+  color: var(--muted);
+  font-size: 0.88rem;
+  text-align: center;
+}
+
+.dropzone-inline strong {
+  color: var(--text-strong);
+  font-weight: 500;
+  font-size: 1rem;
+}
+
+.reading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--text);
+  font-size: 0.92rem;
+}
+
+.reading-bar {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
+  width: 100%;
+  background: var(--accent);
+  transform-origin: left;
+  transition: transform 0.4s var(--ease-out);
+}
+
+/* --- eye chips ---------------------------------------------------------- */
+
+.intake-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.chips {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.chips-label {
+  font: 500 0.68rem var(--font-mono);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-right: 0.35rem;
+}
+
+.chips label {
+  position: relative;
+  padding: 0.38rem 0.85rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  color: var(--muted);
+  font-size: 0.86rem;
+  cursor: pointer;
+  transition:
+    color 0.3s var(--ease-out),
+    background 0.3s var(--ease-out),
+    border-color 0.3s var(--ease-out);
+}
+
+.chips label:hover {
+  color: var(--text-strong);
+}
+
+.chips label.is-active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+.chips input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.chips label:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* --- notes --------------------------------------------------------------- */
+
+.or-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  color: var(--muted);
+  font: 500 0.68rem var(--font-mono);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.or-divider::before,
+.or-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.intake .note-input {
+  width: 100%;
+  min-height: 11rem;
+  resize: vertical;
+  padding: 0.95rem 1.05rem;
+  border-radius: 16px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-2);
+  color: var(--text);
+  font: 400 0.95rem/1.6 var(--font-sans);
+  transition:
+    border-color 0.3s var(--ease-out),
+    box-shadow 0.3s var(--ease-out);
+}
+
+.intake .note-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-soft);
+}
+
+.note-foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.note-source {
+  color: var(--accent);
+}
+
+.note-count {
+  font-family: var(--font-mono);
+}
+
+.note-count.is-over,
+.intake .field-error {
+  color: var(--danger);
+}
+
+.intake .field-error {
+  margin: 0;
+  font-size: 0.86rem;
+}
+
+.intake .link-button {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--accent);
+  font: inherit;
+  font-size: 0.86rem;
+  cursor: pointer;
+}
+
+/* --- action bar ------------------------------------------------------------ */
+
+.intake-action {
+  position: sticky;
+  bottom: 1rem;
+  z-index: 5;
+  margin-top: 1.25rem;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.intake-action-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+  padding: 0.75rem 0.75rem 0.75rem 1.4rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  border: 1px solid var(--border-strong);
+  backdrop-filter: blur(16px);
+  box-shadow: var(--shadow);
+}
+
+.intake-action-bar p {
+  margin: 0;
+  font-size: 0.84rem;
+  color: var(--muted);
+}
+
+.generate {
+  min-width: 13rem;
+}
+
+.generate.is-busy {
+  background-image: linear-gradient(110deg, transparent 30%, rgba(255, 255, 255, 0.35) 50%, transparent 70%);
+  background-size: 220% 100%;
+  animation: shimmer 1.4s linear infinite;
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 120% 0;
+  }
+  to {
+    background-position: -120% 0;
+  }
+}
+
+@media (max-width: 900px) {
+  .intake-grid {
+    grid-template-columns: 1fr;
+  }
+  .intake-action {
+    position: static;
+  }
+  .intake-action-bar {
+    flex-direction: column;
+    align-items: stretch;
+    border-radius: 22px;
+    padding: 1rem;
+  }
+  .generate {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lens::before,
+  .lens span,
+  .generate.is-busy,
+  .fundus-preview {
+    animation: none;
+  }
+}
+
+/* =====================================================================
+   WORKSPACE SHELL — refined chrome for the signed-in pages
+   ===================================================================== */
+
+.shell .sidebar {
+  background: var(--bg-elev);
+  border-right: 1px solid var(--border);
+}
+
+.shell .nav-item {
+  border-radius: 10px;
+  transition:
+    background 0.3s var(--ease-out),
+    color 0.3s var(--ease-out),
+    transform 0.4s var(--ease-out);
+}
+
+.shell .nav-item:hover {
+  transform: translateX(3px);
+}
+
+.shell .nav-item.is-active {
+  background: var(--accent-soft);
+  color: var(--text-strong);
+}
+
+.shell .card {
+  border-radius: var(--radius);
 }

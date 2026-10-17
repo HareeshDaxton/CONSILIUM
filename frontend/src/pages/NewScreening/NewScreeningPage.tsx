@@ -1,97 +1,131 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent, FormEvent } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 
-import { useRecentCases, useSystemStatus } from "../../api/queries";
+import { useSystemStatus } from "../../api/queries";
 import type { Laterality } from "../../api/types";
 import { useApi } from "../../auth/session";
 import { ProblemMessage } from "../../components/ProblemMessage";
-import { StatusBadge } from "../../components/StatusBadge";
-import { formatDateTime, shortId } from "../../lib/format";
+import { REPORT_ACCEPT, UnsupportedReport, extractReportText, reportKind } from "../../lib/extractText";
+import { EASE, gsap, prefersReducedMotion } from "../../motion/gsap";
 
 const NOTE_MAX = 4000; // matches the server's input-rail cap
-const ACCEPT = "image/png,image/jpeg";
-const EYES: { value: Laterality; label: string }[] = [
-  { value: "OD", label: "Right eye (OD)" },
-  { value: "OS", label: "Left eye (OS)" },
-  { value: "UNKNOWN", label: "Not specified" },
+const IMAGE_ACCEPT = "image/png,image/jpeg";
+const EYES: { value: Laterality; label: string; short: string }[] = [
+  { value: "OD", label: "Right eye (OD)", short: "Right" },
+  { value: "OS", label: "Left eye (OS)", short: "Left" },
+  { value: "UNKNOWN", label: "Not specified", short: "Not sure" },
 ];
+const KIND_LABEL = { pdf: "PDF", docx: "Word document", image: "image", text: "text file" } as const;
 
-const PIPELINE = [
-  ["Vision", "SwinV2 estimates glaucoma probability; SegFormer outlines the optic disc and cup (GPU server)."],
-  ["Measurements", "Cup-to-disc ratio, risk tier and image-quality checks are computed in CONSILIUM's own code."],
-  ["Note", "Your note is de-identified and safety-checked before any AI reads it."],
-  ["Specialists", "Ophthalmologist, optometrist and pharmacist agents each see only the facts their role needs."],
-  ["Audit", "The Director drafts the report; a verifier and an adversarial critic check every claim."],
-  ["Report", "You get an evidence-linked draft to review, sign off and export as PDF or Word."],
-] as const;
-
-function VisionStatusPill() {
-  const { data, error } = useSystemStatus();
-  if (error) return <span className="pill pill-muted">Status unavailable</span>;
-  if (!data) return <span className="pill pill-muted">Checking servers…</span>;
-  const v = data.vision;
-  const vision = !v.reachable
-    ? { tone: "bad", text: "Vision server offline" }
-    : !v.revision_ok
-      ? { tone: "warn", text: "Vision server: model version mismatch" }
-      : { tone: "ok", text: `Vision server online${v.device ? ` (${v.device === "cuda" ? "GPU" : v.device})` : ""}` };
+/** Only one thing the user must know: reports cannot be made right now. */
+function OfflineNotice() {
+  const { data } = useSystemStatus();
+  if (!data || (data.vision.reachable && data.vision.revision_ok && data.llm_configured)) return null;
   return (
-    <div className="status-pills" data-testid="system-status">
-      <span className={`pill pill-${vision.tone}`}>
-        <span className="pill-dot" />
-        {vision.text}
-      </span>
-      <span className={`pill pill-${data.llm_configured ? "ok" : "bad"}`}>
-        <span className="pill-dot" />
-        {data.llm_configured ? "AI agents ready" : "AI agents not configured"}
-      </span>
-    </div>
+    <p className="intake-notice" role="status" data-testid="system-notice">
+      Report generation is temporarily unavailable. You can prepare the case; try again in a few minutes.
+    </p>
   );
 }
 
-// Main page: upload a fundus image (+ optional note) and generate the report.
+function useDrop(onFile: (f: File | undefined) => void) {
+  const [over, setOver] = useState(false);
+  return {
+    over,
+    props: {
+      onDragOver: (e: DragEvent) => {
+        e.preventDefault();
+        setOver(true);
+      },
+      onDragLeave: () => setOver(false),
+      onDrop: (e: DragEvent) => {
+        e.preventDefault();
+        setOver(false);
+        onFile(e.dataTransfer.files[0]);
+      },
+    },
+  };
+}
+
+// Main page: fundus photograph + optional doctor's report → Generate report.
 export function NewScreeningPage() {
   const api = useApi();
   const navigate = useNavigate();
-  const recent = useRecentCases();
-  const input = useRef<HTMLInputElement>(null);
+  const root = useRef<HTMLElement>(null);
+  const imageInput = useRef<HTMLInputElement>(null);
+  const reportInput = useRef<HTMLInputElement>(null);
+
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [eye, setEye] = useState<Laterality>("UNKNOWN");
+  const [imageError, setImageError] = useState<string | null>(null);
+
   const [note, setNote] = useState("");
-  const [dragging, setDragging] = useState(false);
+  const [source, setSource] = useState<string | null>(null); // "Text from your PDF"
+  const [reading, setReading] = useState<number | null>(null); // 0..1 while extracting
+  const [reportError, setReportError] = useState<string | null>(null);
+
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
-  const [localError, setLocalError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!file) return undefined;
+    if (!file) {
+      setPreview(null);
+      return undefined;
+    }
     const url = URL.createObjectURL(file);
     setPreview(url);
     return () => URL.revokeObjectURL(url);
   }, [file]);
 
-  function choose(f: File | undefined | null) {
+  useLayoutEffect(() => {
+    const host = root.current;
+    if (!host || prefersReducedMotion()) return undefined;
+    const ctx = gsap.context(() => {
+      gsap.from(".intake-head > *", { autoAlpha: 0, y: 26, duration: 1.1, ease: EASE.out, stagger: 0.08 });
+      gsap.from(".intake-card", { autoAlpha: 0, y: 40, duration: 1.2, ease: EASE.out, stagger: 0.12, delay: 0.15 });
+    }, host);
+    return () => ctx.revert();
+  }, []);
+
+  function chooseImage(f: File | undefined | null) {
     setError(null);
     if (!f) return;
-    if (!ACCEPT.split(",").includes(f.type)) {
-      setLocalError("Please choose a PNG or JPEG fundus photograph.");
+    if (!IMAGE_ACCEPT.split(",").includes(f.type)) {
+      setImageError("Please choose a PNG or JPEG fundus photograph.");
       return;
     }
-    setLocalError(null);
+    setImageError(null);
     setFile(f);
   }
 
-  function onDrop(e: DragEvent) {
-    e.preventDefault();
-    setDragging(false);
-    choose(e.dataTransfer.files[0]);
+  async function chooseReport(f: File | undefined | null) {
+    if (!f) return;
+    setReportError(null);
+    const kind = reportKind(f);
+    setReading(0);
+    try {
+      const text = await extractReportText(f, (p) => setReading(p));
+      setNote((prev) => (prev.trim() ? `${prev.trim()}\n\n${text}` : text));
+      setSource(`Text from your ${kind ? KIND_LABEL[kind] : "file"} — please check it before generating.`);
+    } catch (err) {
+      setReportError(
+        err instanceof UnsupportedReport ? err.message : "This file could not be read. Paste the notes instead.",
+      );
+    } finally {
+      setReading(null);
+      if (reportInput.current) reportInput.current.value = "";
+    }
   }
+
+  const imageDrop = useDrop(chooseImage);
+  const reportDrop = useDrop((f) => void chooseReport(f));
+  const tooLong = note.length > NOTE_MAX;
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
-    if (!file) return;
+    if (!file || tooLong) return;
     setBusy(true);
     setError(null);
     try {
@@ -112,137 +146,161 @@ export function NewScreeningPage() {
   }
 
   return (
-    <section className="screening">
-      <header className="page-head">
-        <div>
-          <p className="eyebrow">New screening</p>
-          <h1>Generate a glaucoma screening report</h1>
-          <p className="muted">
-            Upload a retinal fundus photograph and, optionally, a clinical note. CONSILIUM returns an
-            evidence-linked draft report for clinician review.
-          </p>
-        </div>
-        <VisionStatusPill />
+    <section className="intake" ref={root}>
+      <header className="intake-head">
+        <p className="kicker">New screening</p>
+        <h1>
+          Generate a glaucoma screening report
+        </h1>
+        <p className="intake-sub">
+          Add the fundus photograph and, if you have one, the doctor&apos;s report. CONSILIUM prepares a draft for a
+          clinician to review and sign.
+        </p>
+        <OfflineNotice />
       </header>
 
-      <div className="screening-grid">
-        <form className="card upload-card" onSubmit={onSubmit} aria-label="New screening">
-          <h2>1 · Fundus image</h2>
-          <div
-            className={`dropzone${dragging ? " is-dragging" : ""}${file ? " has-file" : ""}`}
-            onDragOver={(e) => {
-              e.preventDefault();
-              setDragging(true);
-            }}
-            onDragLeave={() => setDragging(false)}
-            onDrop={onDrop}
-            onClick={() => input.current?.click()}
-            role="button"
-            tabIndex={0}
-            onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && input.current?.click()}
-            aria-label="Choose a fundus image"
-            data-testid="dropzone"
-          >
-            {preview ? (
-              <img src={preview} alt="Selected fundus image" className="dropzone-preview" />
-            ) : (
-              <div className="dropzone-empty">
-                <span className="dropzone-icon" aria-hidden="true">
-                  ◎
-                </span>
-                <strong>Drop a fundus photo here</strong>
-                <span className="muted">or click to browse · PNG or JPEG · up to 20 MB</span>
+      <form className="intake-form" onSubmit={onSubmit} aria-label="New screening">
+        <div className="intake-grid">
+          {/* 1 — fundus photograph */}
+          <div className="intake-card intake-image">
+            <div className="intake-card-head">
+              <span className="intake-step">01</span>
+              <h2>Fundus photograph</h2>
+            </div>
+            <div
+              className={`dropzone dropzone-image${imageDrop.over ? " is-over" : ""}${file ? " has-file" : ""}`}
+              {...imageDrop.props}
+              onClick={() => imageInput.current?.click()}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && imageInput.current?.click()}
+              aria-label="Choose a fundus image"
+              data-testid="dropzone"
+            >
+              {preview ? (
+                <img src={preview} alt="Selected fundus image" className="fundus-preview" />
+              ) : (
+                <div className="dropzone-empty">
+                  <span className="lens" aria-hidden="true">
+                    <span />
+                  </span>
+                  <strong>Drop the photograph here</strong>
+                  <span>or click to browse · PNG or JPEG</span>
+                </div>
+              )}
+            </div>
+            <input
+              ref={imageInput}
+              type="file"
+              accept={IMAGE_ACCEPT}
+              hidden
+              data-testid="file-input"
+              onChange={(e: ChangeEvent<HTMLInputElement>) => chooseImage(e.target.files?.[0])}
+            />
+            {imageError ? <p className="field-error">{imageError}</p> : null}
+            <div className="intake-row">
+              <div className="chips" role="radiogroup" aria-label="Eye">
+                <span className="chips-label">Eye</span>
+                {EYES.map((o) => (
+                  <label key={o.value} className={eye === o.value ? "is-active" : ""}>
+                    <input
+                      type="radio"
+                      name="eye"
+                      value={o.value}
+                      checked={eye === o.value}
+                      onChange={() => setEye(o.value)}
+                      aria-label={o.label}
+                    />
+                    {o.short}
+                  </label>
+                ))}
               </div>
-            )}
-          </div>
-          <input
-            ref={input}
-            type="file"
-            accept={ACCEPT}
-            hidden
-            data-testid="file-input"
-            onChange={(e: ChangeEvent<HTMLInputElement>) => choose(e.target.files?.[0])}
-          />
-          {file ? (
-            <p className="muted file-meta">
-              {(file.size / 1024 / 1024).toFixed(2)} MB ·{" "}
-              <button type="button" className="link-button" onClick={() => setFile(null)}>
-                remove
-              </button>
-            </p>
-          ) : null}
-          {localError ? <p className="field-error">{localError}</p> : null}
-
-          <h2>2 · Eye</h2>
-          <div className="segmented" role="radiogroup" aria-label="Eye">
-            {EYES.map((o) => (
-              <label key={o.value} className={eye === o.value ? "is-active" : ""}>
-                <input
-                  type="radio"
-                  name="eye"
-                  value={o.value}
-                  checked={eye === o.value}
-                  onChange={() => setEye(o.value)}
-                />
-                {o.label}
-              </label>
-            ))}
+              {file ? (
+                <button type="button" className="link-button" onClick={() => setFile(null)}>
+                  Replace photo
+                </button>
+              ) : null}
+            </div>
           </div>
 
-          <h2>
-            3 · Clinical note <span className="muted optional">(optional)</span>
-          </h2>
-          <textarea
-            className="note-input"
-            aria-label="Clinical note"
-            rows={6}
-            maxLength={NOTE_MAX}
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            placeholder="e.g. 62-year-old, IOP OD 24 mmHg, on latanoprost, asthma. Family history of glaucoma."
-          />
-          <p className="hint">
-            Do not include names, dates of birth or record numbers. The note is checked and de-identified before
-            any AI reads it. {note.length}/{NOTE_MAX}
-          </p>
+          {/* 2 — doctor's report (optional) */}
+          <div className="intake-card intake-report">
+            <div className="intake-card-head">
+              <span className="intake-step">02</span>
+              <h2>
+                Doctor&apos;s report <span className="optional">optional</span>
+              </h2>
+            </div>
+            <div
+              className={`dropzone dropzone-report${reportDrop.over ? " is-over" : ""}${reading !== null ? " is-reading" : ""}`}
+              {...reportDrop.props}
+              onClick={() => reading === null && reportInput.current?.click()}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && reportInput.current?.click()}
+              aria-label="Upload the doctor's report"
+              data-testid="report-dropzone"
+            >
+              {reading !== null ? (
+                <div className="reading" data-testid="report-reading">
+                  <span className="reading-bar" style={{ transform: `scaleX(${Math.max(reading, 0.06)})` }} />
+                  <span>Reading the report on this device…</span>
+                </div>
+              ) : (
+                <div className="dropzone-inline">
+                  <strong>Upload a report</strong>
+                  <span>PDF, Word or a photo of the page</span>
+                </div>
+              )}
+            </div>
+            <input
+              ref={reportInput}
+              type="file"
+              accept={REPORT_ACCEPT}
+              hidden
+              data-testid="report-input"
+              onChange={(e: ChangeEvent<HTMLInputElement>) => void chooseReport(e.target.files?.[0])}
+            />
+            {reportError ? <p className="field-error">{reportError}</p> : null}
 
+            <div className="or-divider" aria-hidden="true">
+              <span>or paste the notes</span>
+            </div>
+            <textarea
+              className="note-input"
+              aria-label="Clinical note"
+              rows={8}
+              value={note}
+              onChange={(e) => {
+                setNote(e.target.value);
+                if (!e.target.value) setSource(null);
+              }}
+              placeholder="e.g. 62-year-old, IOP right eye 24 mmHg, on latanoprost, asthma. Family history of glaucoma."
+            />
+            <div className="note-foot">
+              {source ? <span className="note-source">{source}</span> : <span>Leave out names, birth dates and record numbers.</span>}
+              <span className={tooLong ? "note-count is-over" : "note-count"}>
+                {note.length}/{NOTE_MAX}
+              </span>
+            </div>
+            {tooLong ? <p className="field-error">Shorten the notes to {NOTE_MAX} characters.</p> : null}
+          </div>
+        </div>
+
+        <div className="intake-action">
           {error ? <ProblemMessage error={error} context="Could not start the screening" /> : null}
-
-          <button type="submit" className="btn btn-primary btn-lg submit" disabled={!file || busy}>
-            {busy ? "Uploading…" : "Generate report"}
-          </button>
-          <p className="hint">Screening support only — the report is a draft until a clinician signs it.</p>
-        </form>
-
-        <aside className="screening-side">
-          <div className="card">
-            <h2>How the report is made</h2>
-            <ol className="pipeline-list">
-              {PIPELINE.map(([title, text]) => (
-                <li key={title}>
-                  <strong>{title}</strong>
-                  <span>{text}</span>
-                </li>
-              ))}
-            </ol>
+          <div className="intake-action-bar">
+            <p>Screening support only — the report is a draft until a clinician signs it.</p>
+            <button
+              type="submit"
+              className={`btn btn-primary btn-lg generate${busy ? " is-busy" : ""}`}
+              disabled={!file || busy || tooLong || reading !== null}
+            >
+              {busy ? "Uploading…" : "Generate report"}
+            </button>
           </div>
-          <div className="card">
-            <h2>Recent screenings</h2>
-            {recent.data && recent.data.items.length === 0 ? <p className="empty">None yet.</p> : null}
-            <ul className="recent-list">
-              {recent.data?.items.map((c) => (
-                <li key={c.case_id}>
-                  <Link to={`/cases/${c.case_id}`} className="mono">
-                    {shortId(c.case_id)}
-                  </Link>
-                  <StatusBadge status={c.status} />
-                  <span className="muted">{formatDateTime(c.created_at)}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </aside>
-      </div>
+        </div>
+      </form>
     </section>
   );
 }
