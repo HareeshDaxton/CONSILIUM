@@ -1,0 +1,424 @@
+{
+  "dataset_id": "consilium-smoke-v1",
+  "description": "Synthetic smoke set for eval-smoke (CI-safe). Wiring only: never a source of reported numbers (I-11).",
+  "cases": [
+    {
+      "case_id": "smoke-001",
+      "split": "dev",
+      "cad": {
+        "quality": {
+          "score": 0.91,
+          "gradable": true,
+          "flags": []
+        },
+        "classifier": {
+          "p_raw": 0.87,
+          "p_calibrated": 0.82,
+          "tier": "high",
+          "model_version": "synthetic@smoke+mlflow:none"
+        },
+        "measurements": {
+          "disc_area_px": 11310,
+          "cup_area_px": 5809,
+          "disc_vertical_diameter_px": 120,
+          "cup_vertical_diameter_px": 86
+        },
+        "cdr": {
+          "vertical": 0.7167,
+          "area_based": 0.7167,
+          "mask_convention": "disc_includes_cup"
+        },
+        "mask_qc": {
+          "cup_within_disc": true,
+          "single_component_each": true,
+          "disc_area_plausible": true,
+          "ok": true
+        },
+        "segmenter_version": "synthetic@smoke+mlflow:none",
+        "laterality": "OD"
+      },
+      "note": {
+        "age_years": 64,
+        "iop_mmhg_od": 25.0,
+        "iop_mmhg_os": null,
+        "current_medications": [
+          "metformin"
+        ],
+        "drug_intolerances_or_allergies": [
+          "sulfonamides"
+        ],
+        "comorbidities": [
+          "type 2 diabetes"
+        ],
+        "prior_glaucoma_dx": "none recorded",
+        "exam_findings": null,
+        "free_text": null
+      },
+      "extraction": {
+        "note": {
+          "age_years": 64,
+          "iop_mmhg_od": 25.0,
+          "iop_mmhg_os": null,
+          "current_medications": [
+            "metformin"
+          ],
+          "drug_intolerances_or_allergies": [
+            "sulfonamides"
+          ],
+          "comorbidities": [
+            "type 2 diabetes"
+          ],
+          "prior_glaucoma_dx": "none recorded",
+          "exam_findings": null,
+          "free_text": null
+        },
+        "extractor_model": "synthetic-structured-note",
+        "extractor_prompt_version": "v1",
+        "redactions": [],
+        "extraction_confidence": "high"
+      },
+      "cad_provenance": "synthetic",
+      "curated_disagreement_topics": []
+    },
+    {
+      "case_id": "smoke-002",
+      "split": "dev",
+      "cad": {
+        "quality": {
+          "score": 0.91,
+          "gradable": true,
+          "flags": []
+        },
+        "classifier": {
+          "p_raw": 0.16999999999999998,
+          "p_calibrated": 0.12,
+          "tier": "low",
+          "model_version": "synthetic@smoke+mlflow:none"
+        },
+        "measurements": {
+          "disc_area_px": 11310,
+          "cup_area_px": 1385,
+          "disc_vertical_diameter_px": 120,
+          "cup_vertical_diameter_px": 42
+        },
+        "cdr": {
+          "vertical": 0.35,
+          "area_based": 0.3499,
+          "mask_convention": "disc_includes_cup"
+        },
+        "mask_qc": {
+          "cup_within_disc": true,
+          "single_component_each": true,
+          "disc_area_plausible": true,
+          "ok": true
+        },
+        "segmenter_version": "synthetic@smoke+mlflow:none",
+        "laterality": "OS"
+      },
+      "note": null,
+      "extraction": null,
+      "cad_provenance": "synthetic",
+      "curated_disagreement_topics": []
+    },
+    {
+      "case_id": "smoke-003",
+      "split": "dev",
+      "cad": {
+        "quality": {
+          "score": 0.62,
+          "gradable": true,
+          "flags": [
+            "blurred"
+          ]
+        },
+        "classifier": {
+          "p_raw": 0.5,
+          "p_calibrated": 0.45,
+          "tier": "intermediate",
+          "model_version": "synthetic@smoke+mlflow:none"
+        },
+        "measurements": {
+          "disc_area_px": 11310,
+          "cup_area_px": 3421,
+          "disc_vertical_diameter_px": 120,
+          "cup_vertical_diameter_px": 66
+        },
+        "cdr": {
+          "vertical": 0.55,
+          "area_based": 0.55,
+          "mask_convention": "disc_includes_cup"
+        },
+        "mask_qc": {
+          "cup_within_disc": true,
+          "single_component_each": true,
+          "disc_area_plausible": true,
+          "ok": true
+        },
+        "segmenter_version": "synthetic@smoke+mlflow:none",
+        "laterality": "UNKNOWN"
+      },
+      "note": {
+        "age_years": 51,
+        "iop_mmhg_od": null,
+        "iop_mmhg_os": 18.0,
+        "current_medications": [],
+        "drug_intolerances_or_allergies": [],
+        "comorbidities": [
+          "asthma"
+        ],
+        "prior_glaucoma_dx": null,
+        "exam_findings": null,
+        "free_text": null
+      },
+      "extraction": {
+        "note": {
+          "age_years": 51,
+          "iop_mmhg_od": null,
+          "iop_mmhg_os": 18.0,
+          "current_medications": [],
+          "drug_intolerances_or_allergies": [],
+          "comorbidities": [
+            "asthma"
+          ],
+          "prior_glaucoma_dx": null,
+          "exam_findings": null,
+          "free_text": null
+        },
+        "extractor_model": "synthetic-structured-note",
+        "extractor_prompt_version": "v1",
+        "redactions": [],
+        "extraction_confidence": "low"
+      },
+      "cad_provenance": "synthetic",
+      "curated_disagreement_topics": []
+    },
+    {
+      "case_id": "smoke-004",
+      "split": "dev",
+      "cad": {
+        "quality": {
+          "score": 0.91,
+          "gradable": true,
+          "flags": []
+        },
+        "classifier": {
+          "p_raw": 0.8200000000000001,
+          "p_calibrated": 0.77,
+          "tier": "high",
+          "model_version": "synthetic@smoke+mlflow:none"
+        },
+        "measurements": {
+          "disc_area_px": 11310,
+          "cup_area_px": 5281,
+          "disc_vertical_diameter_px": 120,
+          "cup_vertical_diameter_px": 82
+        },
+        "cdr": {
+          "vertical": 0.6833,
+          "area_based": 0.6833,
+          "mask_convention": "disc_includes_cup"
+        },
+        "mask_qc": {
+          "cup_within_disc": true,
+          "single_component_each": false,
+          "disc_area_plausible": true,
+          "ok": false
+        },
+        "segmenter_version": "synthetic@smoke+mlflow:none",
+        "laterality": "OD"
+      },
+      "note": {
+        "age_years": 70,
+        "iop_mmhg_od": 27.0,
+        "iop_mmhg_os": null,
+        "current_medications": [
+          "amlodipine"
+        ],
+        "drug_intolerances_or_allergies": [],
+        "comorbidities": [
+          "hypertension"
+        ],
+        "prior_glaucoma_dx": null,
+        "exam_findings": null,
+        "free_text": null
+      },
+      "extraction": {
+        "note": {
+          "age_years": 70,
+          "iop_mmhg_od": 27.0,
+          "iop_mmhg_os": null,
+          "current_medications": [
+            "amlodipine"
+          ],
+          "drug_intolerances_or_allergies": [],
+          "comorbidities": [
+            "hypertension"
+          ],
+          "prior_glaucoma_dx": null,
+          "exam_findings": null,
+          "free_text": null
+        },
+        "extractor_model": "synthetic-structured-note",
+        "extractor_prompt_version": "v1",
+        "redactions": [],
+        "extraction_confidence": "high"
+      },
+      "cad_provenance": "synthetic",
+      "curated_disagreement_topics": []
+    },
+    {
+      "case_id": "smoke-005",
+      "split": "dev",
+      "cad": {
+        "quality": {
+          "score": 0.91,
+          "gradable": true,
+          "flags": []
+        },
+        "classifier": {
+          "p_raw": 0.56,
+          "p_calibrated": 0.51,
+          "tier": "intermediate",
+          "model_version": "synthetic@smoke+mlflow:none"
+        },
+        "measurements": {
+          "disc_area_px": 11310,
+          "cup_area_px": 4072,
+          "disc_vertical_diameter_px": 120,
+          "cup_vertical_diameter_px": 72
+        },
+        "cdr": {
+          "vertical": 0.6,
+          "area_based": 0.6,
+          "mask_convention": "disc_includes_cup"
+        },
+        "mask_qc": {
+          "cup_within_disc": true,
+          "single_component_each": true,
+          "disc_area_plausible": true,
+          "ok": true
+        },
+        "segmenter_version": "synthetic@smoke+mlflow:none",
+        "laterality": "OS"
+      },
+      "note": {
+        "age_years": 51,
+        "iop_mmhg_od": null,
+        "iop_mmhg_os": 18.0,
+        "current_medications": [],
+        "drug_intolerances_or_allergies": [],
+        "comorbidities": [
+          "asthma"
+        ],
+        "prior_glaucoma_dx": null,
+        "exam_findings": null,
+        "free_text": null
+      },
+      "extraction": {
+        "note": {
+          "age_years": 51,
+          "iop_mmhg_od": null,
+          "iop_mmhg_os": 18.0,
+          "current_medications": [],
+          "drug_intolerances_or_allergies": [],
+          "comorbidities": [
+            "asthma"
+          ],
+          "prior_glaucoma_dx": null,
+          "exam_findings": null,
+          "free_text": null
+        },
+        "extractor_model": "synthetic-structured-note",
+        "extractor_prompt_version": "v1",
+        "redactions": [],
+        "extraction_confidence": "high"
+      },
+      "cad_provenance": "synthetic",
+      "curated_disagreement_topics": [
+        "escalation urgency",
+        "cdr interpretation"
+      ]
+    },
+    {
+      "case_id": "smoke-006",
+      "split": "holdout",
+      "cad": {
+        "quality": {
+          "score": 0.91,
+          "gradable": true,
+          "flags": []
+        },
+        "classifier": {
+          "p_raw": 0.74,
+          "p_calibrated": 0.69,
+          "tier": "high",
+          "model_version": "synthetic@smoke+mlflow:none"
+        },
+        "measurements": {
+          "disc_area_px": 11310,
+          "cup_area_px": 5542,
+          "disc_vertical_diameter_px": 120,
+          "cup_vertical_diameter_px": 84
+        },
+        "cdr": {
+          "vertical": 0.7,
+          "area_based": 0.7,
+          "mask_convention": "disc_includes_cup"
+        },
+        "mask_qc": {
+          "cup_within_disc": true,
+          "single_component_each": true,
+          "disc_area_plausible": true,
+          "ok": true
+        },
+        "segmenter_version": "synthetic@smoke+mlflow:none",
+        "laterality": "OD"
+      },
+      "note": {
+        "age_years": 64,
+        "iop_mmhg_od": 25.0,
+        "iop_mmhg_os": null,
+        "current_medications": [
+          "metformin"
+        ],
+        "drug_intolerances_or_allergies": [
+          "sulfonamides"
+        ],
+        "comorbidities": [
+          "type 2 diabetes"
+        ],
+        "prior_glaucoma_dx": "none recorded",
+        "exam_findings": null,
+        "free_text": null
+      },
+      "extraction": {
+        "note": {
+          "age_years": 64,
+          "iop_mmhg_od": 25.0,
+          "iop_mmhg_os": null,
+          "current_medications": [
+            "metformin"
+          ],
+          "drug_intolerances_or_allergies": [
+            "sulfonamides"
+          ],
+          "comorbidities": [
+            "type 2 diabetes"
+          ],
+          "prior_glaucoma_dx": "none recorded",
+          "exam_findings": null,
+          "free_text": null
+        },
+        "extractor_model": "synthetic-structured-note",
+        "extractor_prompt_version": "v1",
+        "redactions": [],
+        "extraction_confidence": "high"
+      },
+      "cad_provenance": "synthetic",
+      "curated_disagreement_topics": [
+        "escalation urgency",
+        "cdr interpretation"
+      ]
+    }
+  ]
+}
