@@ -1,0 +1,24 @@
+# Evaluation harness configuration (AGENTS.md §19; plan Section 13.2).
+# Hashed into every stored run's provenance (config_hashes) — changing any
+# value here is visible in every run that follows.
+
+bootstrap:
+  resamples: 2000        # case-level (cluster) bootstrap; samples are nested in cases
+  confidence: 0.95
+  seed: 20260101         # bootstrap RNG seed (independent of the LLM sample seed)
+
+# Stage pairs reported as per-case paired differences (later minus earlier).
+paired_comparisons:
+  - [S1, S2]
+  - [S2, S3]
+  - [S3, S4]
+  - [S1, S4]
+
+# USD per 1M tokens, keyed by the pinned model snapshot. ESTIMATES for the
+# cost-per-case metric only. Verify against the provider's current price list
+# before quoting cost anywhere; a model without an entry reports cost = null
+# (never a guessed number, I-11).
+pricing_usd_per_1m_tokens:
+  gpt-4o-mini-2024-07-18:
+    input: 0.15
+    output: 0.60
