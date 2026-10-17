@@ -31,6 +31,16 @@ export function useCaseList(statuses: readonly CaseStatus[]) {
   });
 }
 
+/** Number of rows the server returns for a queue filter (capped at `limit`). */
+export function useQueueCount(statuses: readonly CaseStatus[], limit: number) {
+  const api = useApi();
+  return useQuery({
+    queryKey: ["cases", "count", [...statuses].sort(), limit] as const,
+    queryFn: async () => (await api.listCases(statuses, limit)).items.length,
+    refetchInterval: 30_000,
+  });
+}
+
 export function useCase(id: string) {
   const api = useApi();
   return useQuery({
@@ -100,5 +110,47 @@ export function useReviewMutation(id: string) {
       await qc.invalidateQueries({ queryKey: ["case", id] });
       await qc.invalidateQueries({ queryKey: ["cases"] });
     },
+  });
+}
+
+/** Polls faster while the server says the pipeline is still running. */
+export function useCaseProgress(id: string) {
+  const api = useApi();
+  return useQuery({
+    queryKey: keys.case(id),
+    queryFn: () => api.getCase(id),
+    refetchInterval: (q) => (q.state.data?.in_progress ? 2_500 : POLL_MS),
+  });
+}
+
+export function useLiveTimeline(id: string, fast: boolean) {
+  const api = useApi();
+  return useQuery({
+    queryKey: keys.timeline(id),
+    queryFn: () => api.getTimeline(id),
+    refetchInterval: fast ? 2_500 : false,
+  });
+}
+
+export function useReportDocument(id: string, enabled: boolean) {
+  const api = useApi();
+  return useQuery({
+    queryKey: ["case", id, "report-document"] as const,
+    queryFn: () => api.getReportDocument(id),
+    enabled,
+  });
+}
+
+export function useSystemStatus() {
+  const api = useApi();
+  return useQuery({ queryKey: ["meta", "status"] as const, queryFn: () => api.systemStatus(), refetchInterval: 15_000 });
+}
+
+export function useRecentCases(limit = 6) {
+  const api = useApi();
+  return useQuery({
+    queryKey: ["cases", "recent", limit] as const,
+    queryFn: () => api.listCases([], limit),
+    refetchInterval: POLL_MS,
   });
 }
