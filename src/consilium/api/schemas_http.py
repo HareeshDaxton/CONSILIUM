@@ -6,13 +6,14 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from consilium.schemas.agents import DirectorDraft
 from consilium.schemas.audit import Issue
 from consilium.schemas.enums import CaseStatus, FactSource, Laterality
 
 __all__ = [
+    "AuthConfigView",
     "CadSummary",
     "CaseListItem",
     "CaseListView",
@@ -21,9 +22,14 @@ __all__ = [
     "EvidenceChip",
     "FactView",
     "FailureView",
+    "GoogleLoginRequest",
     "MeView",
+    "SessionUser",
+    "SessionView",
     "SubmitResponse",
+    "SystemStatusView",
     "TimelineEvent",
+    "VisionStatusView",
 ]
 
 
@@ -58,6 +64,9 @@ class CaseView(_View):
     failure: FailureView | None = None
     cad_summary: CadSummary | None = None
     unverified: bool = False
+    # True while the pipeline still has nodes to run (decided by the graph's
+    # edges, server-side). The UI polls while true; it never reads statuses.
+    in_progress: bool = False
 
 
 class EvidenceChip(_View):
@@ -113,3 +122,43 @@ class FactView(_View):
     value: str | float | int | bool | tuple[str, ...]
     unit: str | None = None
     source: FactSource
+
+
+class AuthConfigView(_View):
+    """Public sign-in configuration for the UI (the Google client ID is public)."""
+
+    google_client_id: str | None
+
+
+class GoogleLoginRequest(_View):
+    credential: str = Field(min_length=20, max_length=8192)  # Google ID token (JWT)
+
+
+class SessionUser(_View):
+    sub: str
+    roles: tuple[str, ...]
+    email: str | None = None
+    name: str | None = None
+    picture: str | None = None
+
+
+class SessionView(_View):
+    access_token: str
+    token_type: str = "Bearer"  # noqa: S105  # OAuth token-type label, not a secret
+    expires_in: int
+    user: SessionUser
+
+
+class VisionStatusView(_View):
+    mode: str  # "http" (Deva's GPU server / HF endpoint) or "fake" (offline dev)
+    reachable: bool
+    revision_ok: bool
+    device: str | None = None
+    detail: str | None = None
+
+
+class SystemStatusView(_View):
+    """What the upload page needs to know before a submission (no case data)."""
+
+    vision: VisionStatusView
+    llm_configured: bool
