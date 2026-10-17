@@ -7,6 +7,7 @@ import verified from "../../test/fixtures/draft_verified.json";
 import me from "../../test/fixtures/me_clinician.json";
 import reasonCodes from "../../test/fixtures/reason_codes.json";
 import report from "../../test/fixtures/report.json";
+import reportDoc from "../../test/fixtures/report_document.json";
 import reviewResult from "../../test/fixtures/review_result.json";
 import { createMockApi, problem } from "../../test/mockApi";
 import { renderSignedIn } from "../../test/renderApp";
@@ -60,7 +61,7 @@ describe("review screen", () => {
     expect(await screen.findByText(/ROLE_CLINICIAN_REQUIRED/)).toBeInTheDocument();
   });
 
-  it("composes overlay + draft + edit form; approve-with-edits lands on the report", async () => {
+  it("composes overlay + draft + edit form; approve-with-edits lands on the signed report", async () => {
     const png = () => ({ blob: new Blob([new Uint8Array([137, 80, 78, 71])], { type: "image/png" }) });
     const { fetchImpl, calls } = createMockApi({
       "GET /v1/me": me,
@@ -70,6 +71,15 @@ describe("review screen", () => {
       "GET /v1/meta/reason-codes": reasonCodes,
       [`POST /v1/cases/${A}/review`]: () => ({ json: reviewResult }),
       [`GET /v1/cases/${A}/report`]: report,
+      [`GET /v1/cases/${A}/timeline`]: [],
+      [`GET /v1/cases/${A}/report-document`]: {
+        ...reportDoc,
+        state: "approved",
+        state_label: "Clinician-approved report",
+        approved_by: report.approved_by,
+        approved_at: report.approved_at,
+        version: 1,
+      },
     });
     const { user } = await renderSignedIn(`/cases/${A}/review`, fetchImpl);
     expect(await screen.findByTestId("overlay-viewer")).toBeInTheDocument();
@@ -78,8 +88,10 @@ describe("review screen", () => {
     await user.type(box, report.report.claims[1]!.text);
     await user.click(await screen.findByRole("checkbox", { name: /TONE_OR_WORDING/ }));
     await user.click(screen.getByRole("button", { name: "Approve with edits" }));
-    expect(await screen.findByTestId("screening-notice")).toBeInTheDocument();
-    expect(screen.getByTestId("attribution")).toHaveTextContent(report.approved_by);
+    const state = await screen.findByTestId("report-state");
+    expect(state).toHaveTextContent("Clinician-approved report");
+    expect(state).toHaveTextContent(`Signed by ${report.approved_by}`);
+    expect(screen.getByRole("button", { name: "Download PDF" })).toBeInTheDocument();
     expect(calls.filter((c) => c.method === "POST")).toHaveLength(1);
   });
 });
