@@ -9,6 +9,7 @@
 //   no refresh endpoint, so an expired token sends the user back to /login.
 
 import type {
+  AuthConfig,
   CaseListView,
   CaseStatus,
   CaseView,
@@ -17,10 +18,13 @@ import type {
   Me,
   Problem,
   ReasonCodeOption,
+  ReportDocument,
   ReportView,
   ReviewCommand,
   ReviewResult,
+  SessionView,
   SubmitResponse,
+  SystemStatus,
   TimelineEvent,
 } from "./types";
 
@@ -52,6 +56,8 @@ export interface ApiClientOptions {
 }
 
 export interface ApiClient {
+  authConfig(): Promise<AuthConfig>;
+  googleSignIn(credential: string): Promise<SessionView>;
   me(token?: string): Promise<Me>;
   listCases(statuses?: readonly CaseStatus[], limit?: number): Promise<CaseListView>;
   getCase(caseId: string): Promise<CaseView>;
@@ -63,7 +69,12 @@ export interface ApiClient {
   review(caseId: string, cmd: ReviewCommand): Promise<ReviewResult>;
   getReport(caseId: string): Promise<ReportView>;
   submitCase(form: FormData, idempotencyKey?: string): Promise<SubmitResponse>;
+  systemStatus(): Promise<SystemStatus>;
+  getReportDocument(caseId: string): Promise<ReportDocument>;
+  exportReport(caseId: string, format: ExportFormat): Promise<{ blob: Blob; filename: string }>;
 }
+
+export type ExportFormat = "pdf" | "docx";
 
 const PROBLEM_PREFIX = "urn:consilium:problem:";
 
@@ -117,6 +128,18 @@ export function createApiClient(opts: ApiClientOptions): ApiClient {
   const enc = encodeURIComponent;
 
   return {
+    authConfig: () => json<AuthConfig>("/v1/auth/config", undefined, ""),
+    // Exchanges a Google ID token for a CONSILIUM session token (server-verified).
+    googleSignIn: (credential) =>
+      json<SessionView>(
+        "/v1/auth/google",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ credential }),
+        },
+        "",
+      ),
     me: (token) => json<Me>("/v1/me", undefined, token),
     listCases: (statuses = [], limit = 50) => {
       const q = new URLSearchParams();
@@ -140,6 +163,14 @@ export function createApiClient(opts: ApiClientOptions): ApiClient {
         body: JSON.stringify(cmd),
       }),
     getReport: (id) => json<ReportView>(`/v1/cases/${enc(id)}/report`),
+    systemStatus: () => json<SystemStatus>("/v1/meta/status"),
+    getReportDocument: (id) => json<ReportDocument>(`/v1/cases/${enc(id)}/report-document`),
+    exportReport: async (id, format) => {
+      const res = await send(`/v1/cases/${enc(id)}/export?format=${format}`);
+      const disposition = res.headers.get("content-disposition") ?? "";
+      const filename = /filename="([^"]+)"/.exec(disposition)?.[1] ?? `consilium-report.${format}`;
+      return { blob: await res.blob(), filename };
+    },
     submitCase: async (form, idempotencyKey) => {
       const headers: Record<string, string> = {};
       if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
