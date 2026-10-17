@@ -1,7 +1,8 @@
 // Phase 12.4 — clinician walkthrough on the dev stack, in a real browser:
 // list → open case → inspect overlay → edit → reason codes →
 // approve-with-edits → approved report; reject path; unverified-draft
-// fix-and-approve path; self-approval refused. Every state change goes
+// fix-and-approve path; self-approval refused; and the main page: upload a
+// fundus image + note → report → PDF/Word download. Every state change goes
 // through the UI → API; the database is never touched by hand. A request
 // spy asserts the UI only ever POSTs review commands and never sends a status.
 
@@ -42,8 +43,9 @@ test.beforeEach(({ page }) => {
 // then navigate in-app only (no page.goto after sign-in).
 async function signInAt(page: Page, path: string, token: string, as: string) {
   await page.goto(path);
+  await page.getByText("Use an access token").click();
   await page.getByLabel("Bearer token").fill(token);
-  await page.getByRole("button", { name: "Sign in" }).click();
+  await page.getByRole("button", { name: "Sign in with token" }).click();
   await expect(page.getByTestId("whoami")).toContainText(as);
 }
 
@@ -57,7 +59,36 @@ test("token lives in memory only: storage is clean and a reload signs out", asyn
   ]);
   for (const s of stored) expect(s).not.toContain(tokens.clinician);
   await page.reload();
-  await expect(page.getByLabel("Bearer token")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
+});
+
+test("main page: upload fundus + note → live progress → report → PDF and Word downloads", async ({ page }) => {
+  const { tokens } = stack();
+  await signInAt(page, "/app", tokens.submitter_clinician, "dev-submitter");
+  await expect(page.getByTestId("system-status")).toContainText("Vision server online");
+  await page.getByTestId("file-input").setInputFiles(fileURLToPath(new URL("./fixtures/synthetic_fundus.png", import.meta.url)));
+  await expect(page.getByAltText("Selected fundus image")).toBeVisible();
+  await page.getByLabel("Clinical note").fill("Synthetic referral. IOP right eye 21 mmHg. Age 65.");
+  await page.getByRole("button", { name: "Generate report" }).click();
+
+  // the dev-stack worker runs the full pipeline; the page polls until done
+  const doc = page.getByTestId("report-document");
+  await expect(doc).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId("report-state")).toContainText("DRAFT — awaiting clinician review");
+  await expect(doc.getByTestId("image-findings")).toContainText("Vertical cup-to-disc ratio");
+  await expect.poll(() => doc.getByRole("img").evaluate((i) => (i as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+
+  for (const [button, ext, magic] of [
+    ["Download PDF", "pdf", "%PDF"],
+    ["Download Word (.docx)", "docx", "PK"],
+  ] as const) {
+    const download = page.waitForEvent("download");
+    await page.getByRole("button", { name: button }).click();
+    const file = await download;
+    expect(file.suggestedFilename()).toMatch(new RegExp(`^consilium-report-[0-9a-f]{8}-draft\.${ext}$`));
+    const head = readFileSync((await file.path())!).subarray(0, magic.length).toString("latin1");
+    expect(head).toBe(magic);
+  }
 });
 
 test("queues: review queue lists the seeded cases; failed case shows its reason", async ({ page }) => {
@@ -84,16 +115,17 @@ test("self-approval is refused by the server", async ({ page }) => {
   await expect(page.getByRole("alert").filter({ hasText: "SELF_APPROVAL" })).toContainText("403");
 });
 
-test("list → case → overlay → edit → reason code → approve with edits → report", async ({ page }) => {
+test("list → case report → review & sign → overlay → edit → reason code → approve → signed report", async ({
+  page,
+}) => {
   const { tokens, cases } = stack();
   await signInAt(page, "/cases", tokens.clinician, "dev-clinician");
   await caseLink(page, cases.approve).click();
 
-  // case detail: CAD summary, de-identified note facts, timeline
-  await expect(page.getByTestId("cad-summary")).toContainText("Vertical CDR");
-  await expect(page.getByText("note.age")).toBeVisible();
-  await expect(page.getByTestId("timeline")).toContainText("node.persist_pending");
-  await page.getByRole("link", { name: "Open review" }).click();
+  // the case's report page: server-built draft report
+  await expect(page.getByTestId("report-state")).toContainText("DRAFT");
+  await expect(page.getByTestId("image-findings")).toContainText("Vertical cup-to-disc ratio");
+  await page.getByRole("link", { name: "Review & sign" }).click();
 
   // overlay: the three server-rendered layers actually decode in the browser
   for (const alt of ["Fundus image", "Optic disc outline", "Optic cup outline"]) {
@@ -116,14 +148,13 @@ test("list → case → overlay → edit → reason code → approve with edits 
   await page.getByRole("checkbox", { name: /TONE_OR_WORDING/ }).check();
   await page.getByRole("button", { name: "Approve with edits" }).click();
 
-  // approved report: attribution, screening notice, edited text
-  await expect(page).toHaveURL(new RegExp(`/cases/${cases.approve}/report$`));
-  await expect(page.getByTestId("screening-notice")).toBeVisible();
-  await expect(page.getByTestId("attribution")).toContainText("dev-clinician");
-  await expect(page.getByTestId("attribution")).toContainText("TONE_OR_WORDING");
-  await expect(page.getByTestId("status-badge")).toHaveText("APPROVED WITH EDITS");
-  await expect(page.getByText("Version 1")).toBeVisible();
+  // back on the report page: now the signed report, with the clinician's edit
+  await expect(page).toHaveURL(new RegExp(`/cases/${cases.approve}$`));
+  await expect(page.getByTestId("report-state")).toContainText("Clinician-approved report");
+  await expect(page.getByTestId("report-state")).toContainText("Signed by dev-clinician");
+  await expect(page.getByTestId("status-badge").first()).toHaveText("APPROVED WITH EDITS");
   await expect(page.getByText(edited)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Download PDF" })).toBeVisible();
 });
 
 test("reject path: reason code → REJECTED; no report; no further review", async ({ page }) => {
@@ -136,13 +167,11 @@ test("reject path: reason code → REJECTED; no report; no further review", asyn
 
   await expect(page).toHaveURL(new RegExp(`/cases/${cases.reject}$`));
   await expect(page.getByTestId("status-badge").first()).toHaveText("REJECTED");
+  await expect(page.getByTestId("report-state")).toContainText("REJECTED by a clinician");
+  await page.getByRole("button", { name: "Show audit trail" }).click();
   await expect(page.getByTestId("timeline")).toContainText("review.reject");
 
-  await page.getByRole("link", { name: "Approved report" }).click();
-  await expect(page.getByText(/REPORT_NOT_APPROVED/)).toBeVisible();
-
-  await page.getByRole("link", { name: "← Case detail" }).click();
-  await page.getByRole("link", { name: "Open review" }).click();
+  await page.getByRole("link", { name: "Review & sign" }).click();
   await page.getByRole("button", { name: "Approve", exact: true }).click();
   await expect(page.getByRole("alert").filter({ hasText: "409" })).toContainText("CASE_NOT_REVIEWABLE");
 });
@@ -170,9 +199,9 @@ test("unverified draft: banner → plain approve refused → wrong fix refused �
   await page.getByRole("button", { name: "Reset all edits" }).click();
   await page.getByLabel(/Claim c2/).fill("Screening tier is as computed; it is supported by the calibrated probability.");
   await page.getByRole("button", { name: "Approve with edits" }).click();
-  await expect(page).toHaveURL(new RegExp(`/cases/${cases.unverified}/report$`));
-  await expect(page.getByTestId("status-badge")).toHaveText("APPROVED WITH EDITS");
-  await expect(page.getByTestId("attribution")).toContainText("CLINICAL_INTERPRETATION");
+  await expect(page).toHaveURL(new RegExp(`/cases/${cases.unverified}$`));
+  await expect(page.getByTestId("status-badge").first()).toHaveText("APPROVED WITH EDITS");
+  await expect(page.getByTestId("report-state")).toContainText("Clinician-approved report");
 });
 
 test("approved queue shows both approvals, seen by a second clinician", async ({ page }) => {
@@ -190,7 +219,12 @@ test.afterAll(() => {
   const allowed = ["action", "base_revision", "edited_draft", "reason_codes", "comment"];
   const writes = requests.filter((r) => r.method() !== "GET");
   expect(writes.length).toBeGreaterThan(0);
-  for (const r of writes) {
+  const uploads = writes.filter((r) => new URL(r.url()).pathname === "/v1/cases");
+  expect(uploads).toHaveLength(1);
+  // (the generic "fundus.<ext>" upload filename is asserted in NewScreeningPage.test.tsx;
+  // Playwright does not expose multipart bodies that carry files)
+  expect(uploads[0]!.headers()["content-type"]).toContain("multipart/form-data");
+  for (const r of writes.filter((w) => !uploads.includes(w))) {
     expect(r.method()).toBe("POST");
     expect(new URL(r.url()).pathname).toMatch(/^\/v1\/cases\/[0-9a-f-]{36}\/review$/);
     const body = JSON.parse(r.postData() ?? "{}") as Record<string, unknown>;
