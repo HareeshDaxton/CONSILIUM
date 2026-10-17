@@ -1,0 +1,5 @@
+# local secrets, downloaded weights, virtual env
+.env
+models/
+.venv/
+__pycache__/
