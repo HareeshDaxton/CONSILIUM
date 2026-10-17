@@ -11,7 +11,7 @@ anything only the user can do (account registrations, dataset downloads, API
 keys into `.env`, tool installs, OS policy changes). If the list is empty,
 the section needed no manual work.
 
-Current position: **PHASE 13 COMPLETE (13.1–13.4: eval harness, metrics + ablation, critic fault-injection stage + rubric tooling, report generation; live run eval-live-20261017T140231Z-d6ed738d stored in doc/eval_runs; OpenAI tuple-schema production bug fixed). Open: critic over-rejection, laterality-UNKNOWN verifier gap, full non-REFUGE set. Next: Phase 14 — Hardening (awaiting go-ahead).**
+Current position: **PHASE 14 COMPLETE (14.1 observability + alerts + runbook; 14.2 threat model, CI security scans, erasure job, PHI sweep; 14.3 load test + DR rehearsal; 14.4 release checklist + model card + INTAKE_FROZEN rollback switch). V1 = supervised-pilot ready; real-patient release blocked on OPEN human items in doc/release_checklist.md (critic over-rejection, provider terms, regulatory, CLINICAL-REVIEW sign-offs).**
 
 ---
 
@@ -4113,3 +4113,128 @@ fault-injection re-run; (2) verifier laterality gap for UNKNOWN (13.3);
 non-REFUGE eval image set + write `cases.json`; with Deva online run
 `make eval-record SPEC=cases.json` then `make eval-full`; clinicians score the
 rubric packet of the full run.
+
+---
+
+## Phase 14 — Hardening & release
+
+### Section 14.1 — Observability dashboards + alerts + runbook ✅ DONE
+
+**Files:** `src/consilium/observability/metrics.py` (NEW: §5.13 Prometheus
+metrics — node latency, cases by status, NEEDS_ATTENTION, LLM calls/tokens/
+latency, vision latency/calls/cold starts/revision mismatch, critic issues by
+type+layer, rounds-to-approval, review actions + decisions; closed-vocabulary
+labels only; `observe_node`, `record_review`), `instrument.py` (NEW:
+`InstrumentedLLM` / `InstrumentedVision` — OTel span + metrics per call,
+counts/IDs only, never bodies; Langfuse metadata), `langfuse_sink.py` (NEW:
+Noop + SDK v4 `start_observation` sink, metadata only, best-effort — SDK
+errors logged by type, never fail a case), `tracing.py` (NEW: OTLP/HTTP
+exporter when `OTEL_ENDPOINT` set). Wiring: `graph/build.py` node timing →
+`observe_node`; `graph/deps.py` `_assemble(instrument=…)` — prod deps
+instrumented + tracing + Langfuse sink, test kits keep bare fakes;
+`review/service.py` → `record_review`; `jobs/worker.py` starts a /metrics
+server on `WORKER_METRICS_PORT` (new setting, default 9100, 0 disables).
+`deploy/observability/{alerts.yml, prometheus.yml, grafana/provisioning/*,
+grafana/dashboards/consilium.json}` (NEW: 7 alerts — VisionFailureSpike,
+VisionRevisionMismatch, VisionColdStartSpike, CriticRoundOneApprovalNear100,
+NeedsAttentionDrift, ReviewBacklog, LLMErrorSpike; 11-panel dashboard incl.
+estimated cost from tokens x list price). `docker-compose.yml`: prometheus
+v2.53.0 + grafana 11.1.0 under profile `observability`. README "Observability
+and runbook" (threshold + action per alert). `tests/unit/test_observability.py`
+(NEW, 5).
+
+**Verified:** ruff/mypy clean; 5 new + 39 scoped (graph nodes, settings,
+review diff, e2e) pass; `docker compose --profile observability config` valid;
+test enforces every alert has a README runbook row and every metric in alerts/
+dashboard exists in the registry.
+**Not verified:** Prometheus/Grafana containers not started here (images not
+pulled); no real OTLP collector or Langfuse instance exercised; review-backlog
+AGE needs a DB gauge (backlog COUNT approximated from counters).
+**MANUAL STEPS (14.1):** `docker compose --profile observability up -d`, open
+Grafana :3001 (change admin password); optional OTEL_ENDPOINT / LANGFUSE_* in `.env`.
+
+### Section 14.2 — Security review + retention + PHI sweep ✅ DONE
+
+**Files:** `doc/threat_model.md` (NEW: assets, trust boundaries, STRIDE table
+with evidence per mitigation, retention, scan results, accepted risks, open
+items before real data); `src/consilium/persistence/erasure.py` (NEW:
+`ERASE_ORDER` over all 11 tables, `erase_case` one transaction,
+`image_referenced`, `cases_older_than`); `src/consilium/jobs/retention.py`
+(NEW: `erase_everywhere` DB → overlays (all layers) → image only if no other
+case shares the hash; `sweep` terminal cases older than N days, dry-run;
+CLINICAL-REVIEW: retention period); `scripts/retention.py` (NEW CLI, uses
+`RETENTION_DATABASE_URL`); `persistence/object_store.py` `delete()`;
+`vision/overlay.py` `overlay_cache_key` (shared by API cache + erasure;
+`api/routes/cases.py` uses it); `.github/workflows/ci.yml` `security` job
+(pip-audit runtime blocking + all-groups report-only, npm audit prod high+,
+gitleaks full history); `.gitleaks.toml` (allowlist: synthetic test JWT);
+`tests/conftest.py` inline gitleaks:allow; `frontend/package.json`+lock
+react-router-dom 6.30.1 → 6.30.6 (3 high advisories fixed); `.env.example`
+(WORKER_METRICS_PORT, RETENTION_DATABASE_URL). Tests NEW:
+`tests/integration/test_retention.py` (3, real Postgres),
+`tests/unit/test_auth_route_matrix.py` (every /v1 route 401 anonymously
+except /auth/config + /auth/google).
+
+**Verified:** gitleaks 534 commits clean (with allowlist); pip-audit runtime
+286 pkgs clean; all-groups 11 advisories in transformers (training pin <5) +
+diskcache (via dvc) → accepted risks; npm audit prod: 0 high (2 moderate,
+need RR v7); PHI sweep greps clean; erasure test passes on Postgres (Docker
+Desktop started for it); route matrix passes; frontend vitest 82/82.
+**Not verified:** CI security job itself not run on GitHub yet; provider data
+terms not re-checked (manual).
+**MANUAL STEPS (14.2):** create a privileged retention DB role + set
+RETENTION_DATABASE_URL; decide RETENTION_DAYS (legal/clinical); re-check
+OpenAI/HF/ngrok data terms; rotate dev secrets before real data.
+
+### Section 14.3 — Load test + DR rehearsal ✅ DONE
+
+**Files:** `scripts/load_test.py` (NEW: real GraphRunner + real local
+Postgres, canned LLM + fake vision with EMULATED latency; per-node latency
+from consecutive persists; e2e p50/p95; throughput; est. cost from tokens x
+list price; proposed target = 0 failures and p95 <= 1.5x emulated critical
+path); `doc/load_test.md` (NEW, generated); `doc/dr.md` (NEW: backup items
+incl. FIELD_ENCRYPTION_KEY kept separate, restore procedure, rehearsal
+record, RTO/RPO); `.gitleaks.toml` allowlists the synthetic load-test JWT.
+
+**Results:** load 50 cases / concurrency 10 (LLM 800 ms/call, vision 1500 ms
+emulated): 50/50 PENDING_REVIEW, 94.1 cases/min, e2e p50 6350 / p95 6523 ms
+vs critical path 5500 ms → target MET (~100 ms per-node persist overhead).
+DR: pg_dump (79 KB) → fresh postgres:16 container (5.4 s) → pg_restore
+(1.6 s, exit 0) → all 11 tables + alembic row counts identical; 50/50
+encrypted notes decrypt with the separate key; object store tar backup →
+fresh dir: 21/21 objects restored, image hashes verified (0.3 s). DR
+container removed afterwards.
+**Not verified:** real OpenAI/GPU latency and rate limits under load (see
+live eval); production-scale restore; post-restore grant re-application.
+**MANUAL STEPS (14.3):** agree the load target; decide RPO (PITR vs nightly
+dump); measure RTO on the first staging restore.
+
+### Section 14.4 — Release checklist ✅ DONE (checklist prepared; OPEN items need named humans)
+
+**Files:** `doc/release_checklist.md` (NEW: all 11 release-checklist items
+with status + evidence; rollback plan; release-blocking findings from Phase
+13; CLINICAL-REVIEW register — 11 markers, reviewer/date/owner blank; sign-off
+table); `doc/MODEL_CARD.md` (NEW: pinned interim weights, intended use,
+REFUGE not held-out, NO measured vision metrics claimed, calibration not
+fitted, limitations); rollback switch `INTAKE_FROZEN` (`core/settings.py`
+`intake_frozen`, `core/errors.py` `ServiceUnavailable` → problem
+`service-unavailable` 503 in `api/errors.py`, `api/routes/cases.py` refuses
+POST /v1/cases with `INTAKE_FROZEN`); `tests/unit/test_intake_freeze.py`
+(NEW); README "Release status (V1)" + "Provider data terms" (placeholder,
+human check) ; `.env.example` INTAKE_FROZEN.
+
+**Verified:** language audit (no diagnosis phrasing in UI/report/prompts;
+screening-support text + UNVERIFIED banner + attribution present); live
+contract test `pytest -m live` 1/1 passed (real OpenAI); FINAL BATTERY —
+ruff + format clean, mypy clean (120 files), lint-imports 8/8, schema-check up
+to date, `pytest -m "not live"` **912 passed, 0 skipped** (Postgres up — all DB
+integration tests ran), coverage 92%.
+**Not verified / OPEN (humans):** clean-checkout CI on GitHub for the release
+commit; provider data terms; regulatory/medical-device determination; all 11
+CLINICAL-REVIEW sign-offs; Langfuse/collector deployment; critic
+over-rejection fix; laterality-UNKNOWN verifier gap; measured vision metrics.
+
+**PHASE 14 RESULT:** every engineering deliverable exists and is verified;
+V1 is ready for a SUPERVISED PILOT on synthetic/consented research data. It
+is NOT releasable for real patient data until the OPEN items in
+doc/release_checklist.md are signed by named people.
