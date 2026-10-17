@@ -191,6 +191,7 @@ async def get_case(
             )
         ),
         unverified=state.unverified,
+        in_progress=next_node(state) is not None,
     )
 
 
@@ -251,6 +252,18 @@ async def get_overlay(
     Served directly (no presigned-URL facility in V1)."""
     deps = _deps(request)
     persisted, state = await _load(deps, case_id)
+    key, png = await overlay_png(deps, persisted, state, layer)
+    return Response(
+        png,
+        media_type="image/png",
+        headers={"ETag": f'"{key}"', "Cache-Control": "private, max-age=3600"},
+    )
+
+
+async def overlay_png(
+    deps: AppDeps, persisted: PersistedCase, state: CaseState, layer: OverlayLayer
+) -> tuple[str, bytes]:
+    """(cache key, PNG) for one overlay layer; rendered once, then cached."""
     cad = await deps.repos.cad_load(persisted.id)
     if cad is None or "disc_mask_rle" not in cad.raw_vision_json or state.image_uri is None:
         raise StatusConflict("OVERLAY_NOT_AVAILABLE")
@@ -261,16 +274,11 @@ async def get_overlay(
     key = hashlib.sha256(material.encode()).hexdigest()
     uri = deps.objects.uri_for(key, prefix=OVERLAY_PREFIX)
     if await deps.objects.exists(uri):
-        png = await deps.objects.load(uri)
-    else:
-        image = await deps.objects.load(state.image_uri)
-        png = await asyncio.to_thread(render_overlay, image, raw, layer=layer)
-        await deps.objects.put(png, prefix=OVERLAY_PREFIX, key=key)
-    return Response(
-        png,
-        media_type="image/png",
-        headers={"ETag": f'"{key}"', "Cache-Control": "private, max-age=3600"},
-    )
+        return key, await deps.objects.load(uri)
+    image = await deps.objects.load(state.image_uri)
+    png = await asyncio.to_thread(render_overlay, image, raw, layer=layer)
+    await deps.objects.put(png, prefix=OVERLAY_PREFIX, key=key)
+    return key, png
 
 
 @router.get("/cases/{case_id}/timeline", response_model=tuple[TimelineEvent, ...])
