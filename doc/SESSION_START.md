@@ -11,13 +11,13 @@ context size and avoid re-reading anything already summarized here.
 (a) the file header (STANDING CONVENTION + "Current position" line), and
 (b) the **most recent** section entry (the last `### Section X.Y` block).
 Do NOT read older phase logs — the header + last entry are the checkpoint.
-CURRENT POSITION (as of last checkpoint): Phase 13 COMPLETE (13.1–13.4:
-eval harness + run store; metrics + bootstrap ablation; critic fault-injection
-stage + clinician rubric tooling; report generation from stored runs; live run
-eval-live-20261017T140231Z-d6ed738d committed under doc/eval_runs/).
-Open findings: critic over-rejection (S4 UNVERIFIED 1.0), verifier laterality
-gap for UNKNOWN, full non-REFUGE eval set not recorded.
-NEXT TASK: Phase 14 — Hardening & release (awaiting go-ahead).
+CURRENT POSITION (as of last checkpoint): Phase 14 COMPLETE (observability +
+alerts + runbook; threat model + CI security scans + erasure job; load test +
+DR rehearsal; release checklist + model card + INTAKE_FROZEN). All 14 plan
+phases implemented. V1 = supervised-pilot ready; real-patient release blocked
+on OPEN human items in doc/release_checklist.md.
+NEXT TASK: fix critic over-rejection (critic prompt v2 via prompt-change skill
++ fault-injection re-run), laterality-UNKNOWN verifier gap — awaiting go-ahead.
 2. `SKILLS.md` — read ONLY the index table + the ONE skill matching the
 current task. For Phase 5 Section 5.1 that is the LLM-client-hardening /
 agent-prompt skills. Read no other skills unless the task later requires them.
