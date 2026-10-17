@@ -11,7 +11,7 @@ anything only the user can do (account registrations, dataset downloads, API
 keys into `.env`, tool installs, OS policy changes). If the list is empty,
 the section needed no manual work.
 
-Current position: **PHASE 12 COMPLETE (12.1–12.4) — React review UI: scaffold + in-memory auth + case list/detail, review screen (DraftView, inline issues, UNVERIFIED banner, disagreements), server-rendered overlay layers + edit-diff form + reason codes + report page, Playwright clinician walkthrough on the offline dev stack (804 backend + 59 UI + 7 browser tests). Next: Phase 13 — Evaluation.**
+Current position: **PHASE 12 COMPLETE + 12.6 (user-directed): main page = upload fundus image + optional note → generated screening report (on screen, PDF, Word); Deva/ GPU vision server (SwinV2 + SegFormer, pinned public REFUGE weights) wired via VisionClient HTTP; scripts/run_app.py runs the real stack (839 backend + 82 UI + 8 browser tests). Next: user adds OPENAI_API_KEY + Deva's URL/token; then Phase 13 — Evaluation.**
 
 ---
 
@@ -3581,3 +3581,268 @@ usability pass; (2) 12.3 CLINICAL-REVIEW (add claims/recs, edit disagreement
 resolutions); (3) prod static serving (nginx) + IdP tokens; (4) earlier open
 items from Phases 10–11.
 
+### Section 12.5 — Redesign: 3D landing page + Google sign-in + workspace ✅ DONE (user-requested, outside the plan)
+
+**Goal (user, 2026-10-16):** "the UI is worse than I imagined" → a professional
+custom website: scroll-driven 3D motion landing page, Google sign-in (client ID
+given in `.env.example`), and a main page.
+
+**Backend — Google sign-in (server-verified; fails closed)**
+- `src/consilium/api/google_auth.py` (NEW) — `GoogleIdTokenVerifier`: RS256
+  only, `aud` = GOOGLE_CLIENT_ID, `iss` ∈ Google issuers, exp (30 s leeway),
+  required claims, `email_verified` must be true; key resolver injectable
+  (`google_jwks_resolver` = PyJWKClient on Google's certs, cached 1 h).
+  `roles_for(email)` from `GOOGLE_CLINICIANS` / `GOOGLE_SUBMITTERS` allowlists
+  only (case-insensitive) → else 403 `GOOGLE_ACCOUNT_NOT_AUTHORIZED`.
+  Session subject = `google:<Google sub>` (opaque; email never logged/stored).
+- `src/consilium/api/routes/auth.py` (NEW) — `GET /v1/auth/config` (public:
+  client ID or null) and `POST /v1/auth/google {credential}` → verify (in a
+  thread: key fetch may hit the network) → roles → `issue_token` (HS*,
+  JWT_SECRET, `SESSION_TTL_MINUTES`, default 480) → `{access_token,
+  token_type, expires_in, user{sub, roles, email, name, picture}}`. 404
+  `GOOGLE_AUTH_DISABLED` when unset. Every other endpoint still accepts only
+  CONSILIUM tokens (a raw Google token → 401).
+- `core/settings.py` (CHANGED) — `google_client_id`, `google_clinicians`,
+  `google_submitters`, `session_ttl_minutes`; validator: Google sign-in
+  requires `JWT_ALGORITHM=HS*`. `api/deps.py` (CHANGED) — `AppDeps.google`
+  + `build_google_verifier`. `api/schemas_http.py` (CHANGED) — `AuthConfigView`,
+  `GoogleLoginRequest` (20..8192 chars), `SessionUser`, `SessionView`.
+  `api/main.py` wires the router. `pyproject.toml`/`uv.lock` — `pyjwt[crypto]`
+  (cryptography was only transitive; RS256 needs it).
+- `scripts/dev_ui_stack.py` (CHANGED) — reads JWT_SECRET/FIELD_ENCRYPTION_KEY/
+  GOOGLE_* from env or repo `.env`; serves with the live Google verifier when
+  configured; `--no-google` for deterministic e2e. `docker-compose.yml`
+  (api env passthrough), `.env.example` (documented Google block next to the
+  user's client ID: GOOGLE_CLINICIANS, GOOGLE_SUBMITTERS, SESSION_TTL_MINUTES).
+- `tests/unit/test_google_auth.py` (NEW, 15) — local RSA key stands in for
+  Google: valid → normalised identity; wrong aud/iss/key, expired, no email,
+  HS256-signed, garbage → 401; unverified email → 403; key-resolver failure →
+  401; allowlist mapping; RS256+Google settings rejected; endpoints: config
+  on/off, 404 disabled, session token accepted by `/v1/me`, Google credential
+  never echoed, stranger 403 without echoing email, short credential 422, raw
+  Google token rejected as bearer.
+- Live smoke (manual, network): real resolver fetched Google's 2 keys; a token
+  forged with a real Google `kid` → `GOOGLE_TOKEN_INVALID`.
+
+**Frontend**
+- Landing (`src/pages/Landing/`): `formations.ts` (pure, seeded; 5,200-point
+  formations: eye → fundus with vessels + cyan disc + magenta cup rings →
+  three isolated role clusters fed one-way by a router → amber/teal
+  verifier/critic rings around claim lines → signed report with seal + check
+  → eye; per-chapter layout: offset away from the copy, facing angle,
+  opacity), `scene.ts` (plain three.js 0.169: additive soft-sprite
+  ShaderMaterial with twinkle, CPU morph between formations driven by scroll
+  progress pulled each frame, gentle sway (never a full spin, so flat shapes
+  never go edge-on/mirrored), pointer parallax, starfield, DPR ≤ 2, pauses
+  when the tab is hidden, reduced-motion = no sway/twinkle/smoothing,
+  dispose), `LandingScene.tsx` (lazy chunk; WebGL failure → static gradient),
+  `LandingPage.tsx` (fixed glass nav, six 100vh chapters with glass copy
+  panels alternating sides, progress rail, reveal-on-scroll, CTA; copy keeps
+  I-11/I-12: no performance figures, "does not diagnose").
+- Sign-in (`pages/Login/LoginPage.tsx`, `components/GoogleSignInButton.tsx`,
+  `auth/google.ts`): split layout; Google's own button + One Tap auto-select
+  (silent re-sign-in after a reload); "Use an access token" disclosure kept
+  for dev/e2e. `auth/session.tsx`: `signInWithGoogle` (server exchange; token
+  in memory only); explicit sign-out calls `disableAutoSelect`, expiry does not.
+- Workspace: `components/Layout.tsx` → `AppShell` (sidebar: brand, queue nav,
+  user card with Google avatar/name/roles, sign out; collapses to a top bar on
+  mobile); `pages/CaseList/CaseListPage.tsx` = main page "Worklist" with queue
+  cards showing per-filter server row counts (`useQueueCount`, 30 s) that are
+  also the filter controls; `components/BrandMark.tsx`; `App.tsx` routes:
+  `/` landing, `/login`, workspace under `RequireAuth` + `AppShell`, `*` → `/`.
+- `src/styles.css` rewritten: tokens (Inter / Space Grotesk / JetBrains Mono
+  via Google Fonts in `index.html`), dark-first with a light workspace
+  variant, landing/auth always dark; all existing component classes restyled.
+- `api/client.ts` (+`authConfig`, `googleSignIn` — public calls send no
+  Authorization header), `api/types.ts` (+`AuthConfig`, `SessionView`, profile
+  fields on `Me`), `api/queries.ts` (+`useQueueCount`).
+- Deps: `three` 0.169.0, `@types/three` 0.169.0 (exact). Bundle: app 252 kB
+  (80 kB gz); three.js only in the lazy landing chunk (472 kB / 120 kB gz).
+- Tests: `LoginPage.test.tsx` (rewritten, 8: token flows + Google exchange via
+  a fake GIS — credential POSTed without Authorization, later calls carry OUR
+  token, nothing in storage; not-allowlisted 403 shown; script-load failure;
+  disabled config; sign-out disables auto-select, expiry does not),
+  `LandingPage.test.tsx` (NEW, 3 — six chapters + rail + CTA, no `%` figures /
+  diagnosis wording, signed-in shows "Open worklist"), `formations.test.ts`
+  (NEW, 5), `CaseListPage.test.tsx` (+1 queue counts; main-list call
+  filtered by limit=50), `test/renderApp.tsx` (`signInWithToken`), e2e
+  `walkthrough.spec.ts` (token disclosure). `frontend/README.md` rewritten.
+
+**Visual verification:** screenshots via headless Chromium (SwiftShader
+WebGL) of all six landing chapters (desktop + mobile), sign-in, worklist
+(light + dark), case detail, review (verified + UNVERIFIED): no console
+errors. Found and fixed from screenshots: continuous spin left the fundus
+edge-on and the report mirrored (→ per-chapter facing + sway), starfield
+diagonal artifact (→ random), Audit list wrapping one word per line (CSS
+grid → absolute counters), clusters/ring colliding with the copy card/rail
+(→ framing), hero cloud too bright behind mobile text (→ dimmer when compact).
+
+**Verified:** `rtk uv run pytest -m "not live" -q` → **819 passed**, coverage
+92%; ruff/format clean (210 files); mypy --strict clean (99 files);
+lint-imports 8 kept / 0 broken; schema snapshots up to date. Frontend: tsc
+clean; vitest **72 passed** (14 files); build OK; Playwright walkthrough **7
+passed** (real API + Postgres + worker, Google off).
+
+**Not verified (honest):** a real Google account signing in end-to-end (needs
+the user's account, the JS origin registered in Google Cloud, and the
+allowlist in `.env`); real-GPU rendering (screenshots used software WebGL);
+human design review.
+**Notes for the user:** `SESSION_SECRET` in `.env.example` is not used —
+sessions are signed with `JWT_SECRET` (set a ≥ 32-byte random value). The
+duplicated `OPENAI_API_KEY=` / `VISION_MODE` / `SWINV2_AND_SEGFORMER_LINK` lines
+the user appended were left untouched.
+**CLINICAL-REVIEW items:** none.
+**MANUAL STEPS FOR THE HUMAN (12.5):** (1) Google Cloud console → OAuth web
+client → Authorized JavaScript origins: add `http://localhost:5173`; (2) in
+`.env`: `GOOGLE_CLIENT_ID=…`, `GOOGLE_CLINICIANS=hareeshdaxton@gmail.com`,
+`JWT_SECRET=<random ≥ 32 bytes>`; (3) `cd frontend && npm ci` (new deps).
+
+### Section 12.6 — Report generation main page + Deva's GPU vision server ✅ DONE (user-directed, outside the plan)
+
+**Goal (user, 2026-10-16, with the conference paper attached):** the product's
+aim is the paper's pipeline — fundus image + optional medical note → multi-agent
+report — so the main page must take those inputs, generate the report and export
+it (PDF / Word). Vision runs on a friend's GPU laptop ("Deva" folder) because
+this laptop is CPU-only: the image is sent there, SwinV2 + SegFormer run
+locally on his GPU, the outputs come back and CONSILIUM builds the report.
+
+**Deva/ (ships to the GPU laptop; never imported by src/):**
+- `wire.py` — pinned models (exact HF commits) + the backend wire contract
+  (`RawVisionOutput`): vectorised RLE byte-identical to `consilium.vision.rle`,
+  aspect-preserving mask size (longest side ≤ 1024), `build_response`, `REVISION`.
+- `server.py` — FastAPI `POST /predict` (raw bytes, bearer token via
+  hmac.compare_digest, 20 MB cap, 401/413/422) + `GET /healthz`
+  (revision, device, GPU name). Loads from `Deva/models/` (offline) when its
+  manifest matches wire.py, else from the pinned HF commits; refuses mismatched
+  local weights. Label indices from model configs (Glaucoma; disc = {disc, cup}
+  nested, cup). `use_fast=False` processors (stable preprocessing across
+  transformers versions). One-at-a-time GPU lock, warm-up at start, images
+  never stored/logged (sizes + timings only). CUDA auto, `DEVICE=cuda` to insist.
+- `download_models.py` (one-time, writes models/ + manifest.json),
+  `check_server.py` (stdlib self-test: health, contract keys, revision, RLE
+  decode, cup ⊆ disc, rough vCDR), `start_server.bat/.sh` (offline),
+  `.env.example` (token/port/device), `requirements.txt` (tested versions;
+  CUDA torch installed separately), `.gitignore` (models/, .env, .venv),
+  `README.md` (step-by-step for Deva: venv, CUDA torch, download, token, start,
+  LAN firewall or Cloudflare quick tunnel, troubleshooting).
+- Models: `pamixsun/swinv2_tiny_for_glaucoma_classification@a25a03d9…` and
+  `pamixsun/segformer_for_optic_disc_cup_segmentation@a0463fb6…` (Apache-2.0,
+  fine-tuned on REFUGE) — interim until in-repo training produces weights.
+
+**Backend:**
+- `configs/models.yaml` (CHANGED, v0.2.0) — pin = Deva revision; model ids +
+  full SHAs; evaluation caveat (REFUGE not held-out for these weights).
+- `vision/client.py` — `VisionHealth`, runtime-checkable `SupportsHealth`;
+  `client_http.py` `health()` (GET /healthz, 5 s); `client_fake.py` `health()`.
+- `reporting/` (NEW package): `document.py` — `build_report_document`: ONE
+  server-built `ReportDocument` (state approved/draft/unverified/rejected decided
+  server-side from status + stored draft; approval attribution only for
+  APPROVED*; open critic issues only for UNVERIFIED; image findings from
+  CADResult; de-identified note facts; findings with cited evidence; preserved
+  disagreements; recommendations; limitations; model info incl. "calibration
+  not yet fitted"; screening footer). `render.py` — PDF (fpdf2, Latin-1-safe
+  text map, coloured state banner, overlay image, footer + page numbers) and
+  Word (python-docx). Deps added: `fpdf2`, `python-docx`, `pyjwt[crypto]`.
+- `api/routes/reports.py` (NEW): `GET /v1/cases/{id}/report-document`,
+  `GET /v1/cases/{id}/export?format=pdf|docx` (clinician; 409
+  REPORT_IN_PROGRESS / REPORT_NOT_AVAILABLE), `GET /v1/meta/status` (vision
+  mode/reachable/revision_ok/device + llm_configured).
+- `api/routes/cases.py` — `CaseView.in_progress` (= graph has a next node;
+  server-decided) + reusable `overlay_png` helper.
+- `scripts/run_app.py` (NEW) — the REAL stack in one process: loads .env,
+  fills safe defaults (local DB, http vision, pin, passthrough model-rail when
+  NeMo absent), explains missing settings in plain English, migrates, prints
+  vision/Google status, serves API + worker. `scripts/dev_ui_stack.py` kept for
+  the offline demo.
+
+**Frontend:**
+- `pages/NewScreening/NewScreeningPage.tsx` (NEW, route `/app`, landing/login
+  target): dropzone + preview (PNG/JPEG), eye selector, optional note (4000
+  cap, PHI hint), vision/AI status pills, "Generate report" → multipart POST
+  with a GENERIC filename `fundus.<ext>` (I-6) + Idempotency-Key; pipeline
+  explainer; recent screenings.
+- `pages/Result/ResultPage.tsx` (NEW, route `/cases/:id`, replaces
+  CaseDetailPage): live progress stepper from audit events while
+  `in_progress` (2.5 s polling); plain-language failure hints (vision server,
+  quality gate, LLM key); the report via `components/Report/ReportDocumentView`
+  (server document verbatim); Download PDF / Word; Review & sign; audit trail.
+- Review now returns to `/cases/:id` (signed report + export). Sidebar
+  "+ New screening"; case list renamed "All screenings". `styles-screening.css`.
+
+**Tests:** `tests/unit/test_deva_wire.py` (7: revision == pin, RLE property
+round-trip byte-identical, payload validates, aspect sizes, bad inputs),
+`tests/integration/test_reports.py` (7: in_progress, draft/unverified/approved
+documents, PDF + DOCX export, failed case 409, status probe),
+`tests/unit/test_vision_health.py` (3), fixtures report_document(+unverified),
+system_status (contract-validated). UI: `NewScreeningPage.test.tsx` (5),
+`ResultPage.test.tsx` (7), Review/Landing updated. e2e: new main-page test
+(upload → progress → report → real PDF/Word downloads), flows updated → **8 passed**.
+
+**Real-world verification:** Deva's server run here on CPU (offline from
+models/): example fundus photo → p_raw 1.00, masks 1024², vCDR ≈ 0.76; our
+pipeline against it: gradable (quality 1.0), tier high, vCDR 0.758, area CDR
+0.754, mask QC ok. `run_app.py` with an INVALID OpenAI key + Deva server: real
+submission went precheck → input rail → note → **vision on Deva's server** →
+context → routing → specialists, then failed closed (`SPECIALIST_FAILED` /
+`LLM_REQUEST_REJECTED`) — as required (I-5). The full LLM report path with a
+real key was NOT run (no key available).
+
+**Verified:** `uv run pytest -m "not live" -q` → **839 passed**, coverage 91%;
+ruff + format clean (223 files, incl. Deva/); mypy --strict clean (103 files);
+lint-imports 8/0; schema snapshots up to date. Frontend: tsc clean; vitest
+**82 passed**; build OK; Playwright **8 passed**.
+
+**Honest notes / deviations:** (1) third-party REFUGE weights replace the
+planned in-repo-trained models for now (pin + caveat recorded); (2) calibration
+is identity (not fitted) — shown on every report; (3) the submitter of a case
+cannot sign it (AGENTS §17) — a second clinician signs; drafts export clearly
+labelled DRAFT; (4) images leave this laptop for Deva's — synthetic/research
+images only, HTTPS via Cloudflare tunnel or trusted LAN (I-14 data-terms
+review still a human decision); (5) the wiring check left one FAILED test case
+in the local `consilium` DB.
+**CLINICAL-REVIEW items:** none new.
+**MANUAL STEPS FOR THE HUMAN (12.6):** (1) send Deva the `Deva/` folder (with or
+without `models/`, 286 MB); he follows Deva/README.md and returns URL + token;
+(2) in `.env`: `OPENAI_API_KEY`, `VISION_ENDPOINT_URL`, `VISION_ENDPOINT_TOKEN`;
+(3) run `docker compose up -d postgres`, `uv run python scripts/run_app.py`,
+`cd frontend; npm run dev`; (4) a second Google account in `GOOGLE_CLINICIANS`
+to sign reports you submit.
+
+
+### Section 12.7 — Deva over ngrok, one-click GPU server ✅ DONE (user-directed)
+
+**Goal (user, 2026-10-17):** Deva's own API (`API.md`: `/predict`, `/segment`,
+`/diagnose`, SegFormer-B3) computes CDR on his side with a wrong formula
+(`sqrt(cup)/sqrt(disc+cup)`, disc = rim only) and reports unverified figures —
+those values must be computed by CONSILIUM. Communication must go local → public
+via **ngrok**; running the `Deva` folder must download the two models if missing,
+run them on the GPU and return outputs to this project.
+
+**Done:**
+- `Deva/server.py` (restructured `main()`): loads `Deva/.env`; generates the
+  shared token on first run (saved to `.env`); downloads the pinned models on
+  first run (`download_models`), always loads from `Deva/models/`
+  (`local_files_only`); GPU auto; warm-up; opens the ngrok tunnel; prints a
+  banner with the two lines to send (`VISION_ENDPOINT_URL` = ngrok https URL,
+  `VISION_ENDPOINT_TOKEN`); binds 127.0.0.1 behind ngrok, 0.0.0.0 when no
+  tunnel (TUNNEL=none or ngrok failed). Still RAW outputs only (no CDR/verdict).
+- `Deva/tunnel.py` (NEW): pyngrok (auto-downloads the agent), NGROK_AUTHTOKEN,
+  optional NGROK_DOMAIN (static free domain), one clear message for missing
+  authtoken / bad domain, ngrok's own log silenced.
+- `Deva/run.bat` / `run.sh` (NEW, replace start_server.*): first run creates
+  `.venv`, installs CUDA PyTorch (`TORCH_INDEX`, default cu124) + requirements,
+  then starts the server. `requirements.txt` + `pyngrok`; `.env.example`
+  (NGROK_*, TUNNEL, PORT, DEVICE, token); README rewritten for the one-click +
+  ngrok flow (and states the old API's CDR is not used).
+- `Deva/check_server.py` and backend `HttpVisionClient` send
+  `ngrok-skip-browser-warning: 1` (free-tier interstitial bypass); unit test.
+
+**Verified:** clean copy of Deva/ (no models, no .env) run with TUNNEL=ngrok and
+no authtoken: token generated into .env, models downloaded, loaded, ngrok binary
+auto-downloaded, auth failure explained in one line, server fell back to LAN
+and the self-test passed via the LAN IP. ruff/format clean (repo incl. Deva/),
+mypy clean, unit+contract 651 passed.
+**Not verified:** a real ngrok tunnel (no authtoken here) and a real CUDA GPU.
+**MANUAL STEPS (12.7):** Deva: ngrok authtoken (+ static domain) into Deva/.env,
+run `run.bat`, send the two printed lines. Hareesh: paste them + OPENAI_API_KEY
+into `.env`, `uv run python scripts/run_app.py`, `cd frontend; npm run dev`.
