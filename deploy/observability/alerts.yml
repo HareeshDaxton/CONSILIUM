@@ -1,0 +1,68 @@
+# Prometheus alert rules (AGENTS.md §18; ARCHITECTURE.md §5.13/§14).
+# Every alert here has a runbook entry in README.md "Runbook" with the same
+# name (tests/unit/test_observability.py enforces it). Thresholds are first
+# operational proposals — tune from real traffic, never to silence a signal.
+groups:
+  - name: consilium
+    rules:
+      - alert: VisionFailureSpike
+        expr: |
+          sum(rate(consilium_vision_calls_total{status="failed"}[10m]))
+            / clamp_min(sum(rate(consilium_vision_calls_total[10m])), 1e-9) > 0.10
+        for: 10m
+        labels: {severity: page}
+        annotations:
+          summary: "More than 10% of vision endpoint calls failed (non-retryable) for 10m"
+
+      - alert: VisionRevisionMismatch
+        expr: increase(consilium_vision_revision_mismatch_total[5m]) > 0
+        labels: {severity: page}
+        annotations:
+          summary: "Vision endpoint revision differs from the pinned revision (cases fail closed)"
+
+      - alert: VisionColdStartSpike
+        expr: |
+          sum(rate(consilium_vision_cold_start_total[15m]))
+            / clamp_min(sum(rate(consilium_vision_calls_total{status="ok"}[15m])), 1e-9) > 0.30
+        for: 15m
+        labels: {severity: ticket}
+        annotations:
+          summary: "More than 0.3 retryable (cold-start) attempts per successful vision call"
+
+      - alert: CriticRoundOneApprovalNear100
+        expr: |
+          (sum(increase(consilium_rounds_to_approval_bucket{le="1"}[6h]))
+            / clamp_min(sum(increase(consilium_rounds_to_approval_count[6h])), 1e-9)) > 0.98
+          and sum(increase(consilium_rounds_to_approval_count[6h])) > 20
+        for: 1h
+        labels: {severity: ticket}
+        annotations:
+          summary: "Critic approves >98% of drafts in round 1 (possible critic degradation)"
+
+      - alert: NeedsAttentionDrift
+        expr: |
+          sum(increase(consilium_needs_attention_total[6h]))
+            / clamp_min(sum(increase(consilium_cases_total{status=~"PENDING_REVIEW|NEEDS_ATTENTION"}[6h])), 1e-9)
+            > 0.25
+        for: 1h
+        labels: {severity: ticket}
+        annotations:
+          summary: "More than 25% of drafted cases end NEEDS_ATTENTION over 6h"
+
+      - alert: ReviewBacklog
+        expr: |
+          sum(increase(consilium_cases_total{status=~"PENDING_REVIEW|NEEDS_ATTENTION"}[24h]))
+            - sum(increase(consilium_review_decisions_total[24h])) > 20
+        for: 2h
+        labels: {severity: ticket}
+        annotations:
+          summary: "More than 20 cases awaiting clinician review (24h arrivals minus decisions)"
+
+      - alert: LLMErrorSpike
+        expr: |
+          sum(rate(consilium_llm_calls_total{status!="ok"}[10m]))
+            / clamp_min(sum(rate(consilium_llm_calls_total[10m])), 1e-9) > 0.05
+        for: 10m
+        labels: {severity: page}
+        annotations:
+          summary: "More than 5% of LLM calls failing (transient, invalid output or rejected)"

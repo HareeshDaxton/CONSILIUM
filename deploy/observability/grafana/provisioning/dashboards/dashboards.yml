@@ -1,0 +1,7 @@
+apiVersion: 1
+providers:
+  - name: consilium
+    folder: CONSILIUM
+    type: file
+    options:
+      path: /var/lib/grafana/dashboards
