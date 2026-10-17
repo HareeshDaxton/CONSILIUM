@@ -23,7 +23,7 @@ export default defineConfig({
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: [
     {
-      command: `uv run python scripts/dev_ui_stack.py --reset --port ${API_PORT} --out frontend/e2e/.stack.json`,
+      command: `uv run python scripts/dev_ui_stack.py --reset --no-google --port ${API_PORT} --out frontend/e2e/.stack.json`,
       cwd: "..",
       url: `http://127.0.0.1:${API_PORT}/readyz`,
       reuseExistingServer: false,
