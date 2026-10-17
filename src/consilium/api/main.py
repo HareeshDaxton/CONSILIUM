@@ -13,7 +13,7 @@ from fastapi import FastAPI
 
 from consilium.api.deps import AppDeps, build_app_deps
 from consilium.api.errors import install_problem_handlers
-from consilium.api.routes import cases, health, me, review
+from consilium.api.routes import auth, cases, health, me, reports, review
 from consilium.observability.otel import RequestTracingMiddleware
 
 __all__ = ["create_app"]
@@ -34,6 +34,8 @@ def create_app(deps: AppDeps | None = None) -> FastAPI:
     app.include_router(cases.router, prefix="/v1")
     app.include_router(review.router, prefix="/v1")
     app.include_router(me.router, prefix="/v1")
+    app.include_router(auth.router, prefix="/v1")
+    app.include_router(reports.router, prefix="/v1")
     install_problem_handlers(app)
     app.add_middleware(RequestTracingMiddleware)
     return app
