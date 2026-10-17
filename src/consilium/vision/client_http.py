@@ -16,7 +16,7 @@ from pydantic import ValidationError
 from consilium.core.errors import VisionFailure
 from consilium.core.logging import get_logger
 from consilium.schemas.vision import RawVisionOutput
-from consilium.vision.client import VisionTransient
+from consilium.vision.client import VisionHealth, VisionTransient
 
 logger = get_logger(__name__)
 
@@ -40,13 +40,38 @@ class HttpVisionClient:
         self._pinned_revision = pinned_revision
         self._client = httpx.AsyncClient(
             base_url=endpoint_url,
-            headers={"Authorization": f"Bearer {token}"},
+            headers={
+                "Authorization": f"Bearer {token}",
+                # Deva's server is published through ngrok; this header stops the
+                # free tier from answering with its HTML interstitial page.
+                "ngrok-skip-browser-warning": "1",
+            },
             timeout=httpx.Timeout(request_timeout_s),
             transport=transport,
         )
 
     async def aclose(self) -> None:
         await self._client.aclose()
+
+    async def health(self, timeout_s: float = 5.0) -> VisionHealth:
+        """GET /healthz on the vision server (Deva's GPU laptop / HF endpoint)."""
+        try:
+            response = await self._client.get("/healthz", timeout=timeout_s)
+        except httpx.HTTPError as exc:
+            return VisionHealth(reachable=False, detail=type(exc).__name__)
+        if response.status_code != 200:
+            return VisionHealth(reachable=False, detail=f"status {response.status_code}")
+        try:
+            body = response.json()
+        except ValueError:
+            return VisionHealth(reachable=False, detail="non-JSON health response")
+        revision = body.get("revision") if isinstance(body, dict) else None
+        device = body.get("device") if isinstance(body, dict) else None
+        return VisionHealth(
+            reachable=True,
+            revision=revision if isinstance(revision, str) else None,
+            device=device if isinstance(device, str) else None,
+        )
 
     async def predict(self, image_bytes: bytes) -> RawVisionOutput:
         try:
