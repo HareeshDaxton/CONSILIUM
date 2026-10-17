@@ -12,3 +12,30 @@ if (!("createObjectURL" in URL)) {
 afterEach(() => {
   cleanup();
 });
+
+// jsdom has no matchMedia; GSAP and the motion layer query it. Report
+// "reduced motion" so animations are skipped and tests stay deterministic.
+if (!window.matchMedia) {
+  Object.defineProperty(window, "matchMedia", {
+    writable: true,
+    value: (query: string) => ({
+      matches: query.includes("prefers-reduced-motion"),
+      media: query,
+      onchange: null,
+      addListener: () => undefined,
+      removeListener: () => undefined,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+      dispatchEvent: () => false,
+    }),
+  });
+}
+
+// jsdom does not implement scrolling; the router resets scroll on navigation.
+window.scrollTo = () => undefined;
+
+// jsdom (without pretendToBeVisual) has no animation frames.
+if (typeof window.requestAnimationFrame !== "function") {
+  window.requestAnimationFrame = (cb: FrameRequestCallback) => window.setTimeout(() => cb(performance.now()), 16);
+  window.cancelAnimationFrame = (id: number) => window.clearTimeout(id);
+}

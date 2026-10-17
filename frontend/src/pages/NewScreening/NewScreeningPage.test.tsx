@@ -1,4 +1,4 @@
-import { fireEvent, screen } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import pending from "../../test/fixtures/case_pending.json";
@@ -25,25 +25,33 @@ function pickFile(name = "Jane_Doe_MRN12345.png", type = "image/png") {
   return file;
 }
 
+function pickReport(text: string, name = "referral_Jane_Doe.txt", type = "text/plain") {
+  const file = new File([text], name, { type });
+  fireEvent.change(screen.getByTestId("report-input"), { target: { files: [file] } });
+}
+
 describe("new screening (main page)", () => {
-  it("is where sign-in lands and shows the vision + AI status", async () => {
+  it("shows only the photo box, the doctor's report box and Generate report", async () => {
     const { fetchImpl } = createMockApi(routes());
     await renderSignedIn("/app", fetchImpl);
     expect(await screen.findByRole("heading", { name: /Generate a glaucoma screening report/ })).toBeInTheDocument();
-    const pills = await screen.findByTestId("system-status");
-    expect(pills).toHaveTextContent("Vision server online (GPU)");
-    expect(pills).toHaveTextContent("AI agents ready");
+    expect(screen.getByRole("heading", { name: "Fundus photograph" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /Doctor's report/ })).toBeInTheDocument();
+    expect(screen.getByLabelText("Clinical note")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Generate report" })).toBeDisabled();
+    // No technical panels on the main page.
+    expect(screen.queryByTestId("system-status")).not.toBeInTheDocument();
+    expect(screen.queryByText(/SwinV2|SegFormer|Recent screenings/)).not.toBeInTheDocument();
   });
 
-  it("warns when Deva's vision server is offline", async () => {
+  it("shows a plain notice only when reports cannot be generated", async () => {
     const offline = { ...status, vision: { ...status.vision, reachable: false, revision_ok: false } };
     const { fetchImpl } = createMockApi(routes({ "GET /v1/meta/status": offline }));
     await renderSignedIn("/app", fetchImpl);
-    expect(await screen.findByText("Vision server offline")).toBeInTheDocument();
+    expect(await screen.findByTestId("system-notice")).toHaveTextContent("temporarily unavailable");
   });
 
-  it("uploads image + eye + note under a generic filename, then opens the result", async () => {
+  it("fills the notes from an uploaded report, editable, without sending the file", async () => {
     const { fetchImpl, calls } = createMockApi(
       routes({
         "POST /v1/cases": () => ({
@@ -55,11 +63,15 @@ describe("new screening (main page)", () => {
       }),
     );
     const { user } = await renderSignedIn("/app", fetchImpl);
-    await screen.findByTestId("system-status");
+    await screen.findByRole("heading", { name: "Fundus photograph" });
     pickFile();
     expect(await screen.findByAltText("Selected fundus image")).toBeInTheDocument();
+    pickReport("IOP   right eye 24 mmHg.\n\n\n\nOn latanoprost.");
+    await waitFor(() =>
+      expect(screen.getByLabelText("Clinical note")).toHaveValue("IOP right eye 24 mmHg.\n\nOn latanoprost."),
+    );
+    expect(screen.getByText(/Text from your text file/)).toBeInTheDocument();
     await user.click(screen.getByLabelText("Left eye (OS)"));
-    await user.type(screen.getByLabelText("Clinical note"), "IOP OD 24 mmHg, on latanoprost.");
     await user.click(screen.getByRole("button", { name: "Generate report" }));
 
     expect(await screen.findByTestId("progress")).toBeInTheDocument();
@@ -67,14 +79,22 @@ describe("new screening (main page)", () => {
     const form = post.body as FormData;
     expect((form.get("image") as File).name).toBe("fundus.png"); // original filename never sent
     expect(form.get("laterality")).toBe("OS");
-    expect(form.get("note")).toBe("IOP OD 24 mmHg, on latanoprost.");
-    expect(post.headers.get("Idempotency-Key")).toBeTruthy();
+    expect(form.get("note")).toBe("IOP right eye 24 mmHg.\n\nOn latanoprost.");
+    expect([...form.keys()].sort()).toEqual(["image", "laterality", "note"]); // the report file is not uploaded
   });
 
-  it("refuses non-image files locally", async () => {
+  it("explains unsupported report files", async () => {
     const { fetchImpl } = createMockApi(routes());
     await renderSignedIn("/app", fetchImpl);
-    await screen.findByTestId("system-status");
+    await screen.findByRole("heading", { name: "Fundus photograph" });
+    pickReport("x", "old.doc", "application/msword");
+    expect(await screen.findByText(/save it as \.docx or PDF/)).toBeInTheDocument();
+  });
+
+  it("refuses non-image photographs locally", async () => {
+    const { fetchImpl } = createMockApi(routes());
+    await renderSignedIn("/app", fetchImpl);
+    await screen.findByRole("heading", { name: "Fundus photograph" });
     pickFile("notes.pdf", "application/pdf");
     expect(screen.getByText("Please choose a PNG or JPEG fundus photograph.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Generate report" })).toBeDisabled();
@@ -85,7 +105,7 @@ describe("new screening (main page)", () => {
       routes({ "POST /v1/cases": () => problem(422, "IMAGE_TOO_SMALL", "input-rejected") }),
     );
     const { user } = await renderSignedIn("/app", fetchImpl);
-    await screen.findByTestId("system-status");
+    await screen.findByRole("heading", { name: "Fundus photograph" });
     pickFile();
     await user.click(screen.getByRole("button", { name: "Generate report" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("422 · IMAGE_TOO_SMALL");
