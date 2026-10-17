@@ -93,6 +93,11 @@ def main() -> None:  # pragma: no cover - process entry point
 
     setup_logging("INFO")
     deps = build_app_deps()
+    if deps.settings.worker_metrics_port:
+        # The pipeline runs in THIS process: expose its metrics for Prometheus (§18).
+        from prometheus_client import start_http_server
+
+        start_http_server(deps.settings.worker_metrics_port)
     worker = Worker(
         deps.runner,
         deps.repos,
