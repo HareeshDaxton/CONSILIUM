@@ -1,0 +1,10 @@
+{
+  "vision": {
+    "mode": "http",
+    "reachable": true,
+    "revision_ok": true,
+    "device": "cuda",
+    "detail": null
+  },
+  "llm_configured": true
+}
