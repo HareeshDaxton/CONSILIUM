@@ -12,7 +12,6 @@ the API answers 202 + case ID.
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import uuid
 from typing import Annotated, Any
 
@@ -39,7 +38,7 @@ from consilium.api.schemas_http import (
     SubmitResponse,
     TimelineEvent,
 )
-from consilium.core.errors import InputRejected, NotFound, StatusConflict
+from consilium.core.errors import InputRejected, NotFound, ServiceUnavailable, StatusConflict
 from consilium.graph.edges import next_node
 from consilium.graph.state import CaseState
 from consilium.jobs.queue import JobQueue
@@ -49,7 +48,7 @@ from consilium.schemas.agents import DirectorDraft
 from consilium.schemas.audit import Issue
 from consilium.schemas.enums import CaseStatus, Laterality
 from consilium.schemas.vision import RawVisionOutput
-from consilium.vision.overlay import OverlayLayer, render_overlay
+from consilium.vision.overlay import OverlayLayer, overlay_cache_key, render_overlay
 
 router = APIRouter(tags=["cases"])
 
@@ -94,6 +93,9 @@ async def submit_case(
     idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key", max_length=200)] = None,
 ) -> Any:
     deps = _deps(request)
+    if deps.settings.intake_frozen:
+        # Rollback/incident switch: no new cases; review + reports keep working.
+        raise ServiceUnavailable("INTAKE_FROZEN")
     if idempotency_key is not None:
         existing = await deps.repos.find_case_by_idempotency_key(idempotency_key)
         if existing is not None:
@@ -268,10 +270,7 @@ async def overlay_png(
     if cad is None or "disc_mask_rle" not in cad.raw_vision_json or state.image_uri is None:
         raise StatusConflict("OVERLAY_NOT_AVAILABLE")
     raw = RawVisionOutput.model_validate(cad.raw_vision_json, strict=False)
-    material = f"{persisted.id}|{raw.disc_mask_rle}|{raw.cup_mask_rle}"
-    if layer != OverlayLayer.COMPOSITE:  # composite keeps its original cache key
-        material += f"|{layer.value}"
-    key = hashlib.sha256(material.encode()).hexdigest()
+    key = overlay_cache_key(str(persisted.id), raw.disc_mask_rle, raw.cup_mask_rle, layer)
     uri = deps.objects.uri_for(key, prefix=OVERLAY_PREFIX)
     if await deps.objects.exists(uri):
         return key, await deps.objects.load(uri)
