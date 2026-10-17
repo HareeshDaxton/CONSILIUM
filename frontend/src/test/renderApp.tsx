@@ -27,9 +27,15 @@ export function renderApp(path: string, fetchImpl: typeof fetch) {
 // back to the requested path afterwards).
 export async function renderSignedIn(path: string, fetchImpl: typeof fetch) {
   const r = renderApp(path, fetchImpl);
-  await r.user.type(await screen.findByLabelText("Bearer token"), TOKEN);
-  await r.user.click(screen.getByRole("button", { name: "Sign in" }));
+  await signInWithToken(r.user, TOKEN);
   return r;
+}
+
+/** Uses the "Use an access token" option of the Login page. */
+export async function signInWithToken(user: ReturnType<typeof userEvent.setup>, token: string) {
+  await user.click(await screen.findByText("Use an access token"));
+  await user.type(screen.getByLabelText("Bearer token"), token);
+  await user.click(screen.getByRole("button", { name: "Sign in with token" }));
 }
 
 // Component-level render with the real query client + session/API context
