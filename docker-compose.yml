@@ -46,7 +46,7 @@ services:
     build: .
     command: ["python", "scripts/fake_vision_server.py"]
     environment:
-      FAKE_VISION_REVISION: ${FAKE_VISION_REVISION:-sha256:fake/dev-fake-000}
+      FAKE_VISION_REVISION: ${FAKE_VISION_REVISION:-}  # empty = configs/models.yaml pin
     ports:
       - "8100:8100"
 
@@ -63,9 +63,13 @@ services:
       VISION_CLIENT_MODE: ${VISION_CLIENT_MODE:-http}
       VISION_ENDPOINT_URL: ${VISION_ENDPOINT_URL:-http://fake-vision:8100}
       VISION_ENDPOINT_TOKEN: ${VISION_ENDPOINT_TOKEN:-dev-fake-token}
-      VISION_PINNED_REVISION: ${VISION_PINNED_REVISION:-sha256:fake/dev-fake-000}
+      VISION_PINNED_REVISION: ${VISION_PINNED_REVISION:-hf:pamixsun/swinv2_tiny_for_glaucoma_classification@a25a03d9ff23+hf:pamixsun/segformer_for_optic_disc_cup_segmentation@a0463fb6c2bf}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       JWT_SECRET: ${JWT_SECRET:-dev-only-insecure-secret-change-me}
+      # Google sign-in for the review UI (off when GOOGLE_CLIENT_ID is empty)
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLINICIANS: ${GOOGLE_CLINICIANS:-}
+      GOOGLE_SUBMITTERS: ${GOOGLE_SUBMITTERS:-}
     volumes:
       - objects:/data/objects
     ports:
@@ -91,7 +95,7 @@ services:
       VISION_CLIENT_MODE: ${VISION_CLIENT_MODE:-http}
       VISION_ENDPOINT_URL: ${VISION_ENDPOINT_URL:-http://fake-vision:8100}
       VISION_ENDPOINT_TOKEN: ${VISION_ENDPOINT_TOKEN:-dev-fake-token}
-      VISION_PINNED_REVISION: ${VISION_PINNED_REVISION:-sha256:fake/dev-fake-000}
+      VISION_PINNED_REVISION: ${VISION_PINNED_REVISION:-hf:pamixsun/swinv2_tiny_for_glaucoma_classification@a25a03d9ff23+hf:pamixsun/segformer_for_optic_disc_cup_segmentation@a0463fb6c2bf}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       JWT_SECRET: ${JWT_SECRET:-dev-only-insecure-secret-change-me}
     depends_on:
