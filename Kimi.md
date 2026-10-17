@@ -11,7 +11,7 @@ anything only the user can do (account registrations, dataset downloads, API
 keys into `.env`, tool installs, OS policy changes). If the list is empty,
 the section needed no manual work.
 
-Current position: **PHASE 12 COMPLETE + 12.6 (user-directed): main page = upload fundus image + optional note → generated screening report (on screen, PDF, Word); Deva/ GPU vision server (SwinV2 + SegFormer, pinned public REFUGE weights) wired via VisionClient HTTP; scripts/run_app.py runs the real stack (839 backend + 82 UI + 8 browser tests). Next: user adds OPENAI_API_KEY + Deva's URL/token; then Phase 13 — Evaluation.**
+Current position: **PHASE 13 COMPLETE (13.1–13.4: eval harness, metrics + ablation, critic fault-injection stage + rubric tooling, report generation; live run eval-live-20261017T140231Z-d6ed738d stored in doc/eval_runs; OpenAI tuple-schema production bug fixed). Open: critic over-rejection, laterality-UNKNOWN verifier gap, full non-REFUGE set. Next: Phase 14 — Hardening (awaiting go-ahead).**
 
 ---
 
@@ -3846,3 +3846,270 @@ mypy clean, unit+contract 651 passed.
 **MANUAL STEPS (12.7):** Deva: ngrok authtoken (+ static domain) into Deva/.env,
 run `run.bat`, send the two printed lines. Hareesh: paste them + OPENAI_API_KEY
 into `.env`, `uv run python scripts/run_app.py`, `cd frontend; npm run dev`.
+
+---
+
+## Phase 13 — Evaluation
+
+### Section 13.1 — Eval harness foundation ✅ DONE
+
+**Goal (plan 13.1):** frozen versioned case manifest, recorded CADResults held
+constant across stages, stage runner S1–S4 with ≥3 samples/case + seed
+control, run store with full provenance. Exit: `make eval-smoke` runs S1–S4 on
+a tiny fixed set offline.
+
+**Files created/changed**
+- `src/consilium/eval/datasets.py` (NEW): `EvalCase` (Strict: case_id, split
+  dev|holdout, recorded `CADResult`, structured `ClinicalNote` +
+  `NoteExtraction`, `cad_provenance` "synthetic" | "recorded:<revision>",
+  `curated_disagreement_topics`), `CaseManifest`, `load_manifest` →
+  `dataset_version` = sha256 of the manifest bytes; duplicate case IDs fail.
+- `src/consilium/eval/fixtures.py` (NEW): `smoke_manifest()` generator
+  (6 synthetic, internally consistent cases: clean / no note / blurred flag /
+  failed mask QC / low-confidence extraction / 2 curated-disagreement; one
+  holdout); `record_cases()` freezes a full set by calling the vision pipeline
+  ONCE per image via `VisionClient`; `synthetic_llm()` = offline
+  "synthetic-recorded-v1" responder (FakeLLMClient loaded with schema-valid
+  responses derived from the context each agent is actually shown;
+  sha256-keyed picks, no RNG; seeded first-draft numeric slip at 0.34,
+  identical across S1–S4 per case+sample, clean revision).
+- `src/consilium/eval/data/smoke_v1.json` (NEW, generated, committed).
+- `src/consilium/eval/runners.py` (NEW): `Stage` S1–S4; `EvalModels`
+  (defaults / from_settings); `shared_routing()` (S2: every role every fact);
+  `PromptSet` (versions as `vN@sha12`); `MeteredLLM` (per-call agent, model,
+  prompt version, tokens, latency, attempts — counts only); `StageRunner`
+  reusing production `BaseSpecialist`/`run_all`/`Director`/`Critic` +
+  `run_audit_loop` unchanged; `StageOutcome` (failed runs stored with reason,
+  never dropped; only `AppError` converted); `RunProvenance` (git SHA + dirty,
+  dataset id/version, split, case IDs, stages, samples, seed, llm_backend,
+  config hashes, routing + shared routing versions, models@T, prompt versions,
+  critic_max_rounds); `RunRecord` (+ `metrics`/`extras` for 13.2/13.3);
+  immutable `RunStore` (`<root>/<run_id>/run.json`, write-once, run-id path
+  guard; default root gitignored `data/eval_runs`); `run_ablation`; CLI
+  `python -m consilium.eval.runners smoke`.
+- `prompts/single_agent/v1.md` (NEW, EVAL-ONLY S1 baseline): same output
+  contract + safety/wording rules as the Director; each claim attributed to
+  the ONE role lens it is made from (`Claim.source_roles` needs ≥1).
+- `Makefile`: `eval-smoke` implemented.
+- `tests/unit/test_eval_harness.py` (NEW, 14 tests).
+
+**Key decisions**
+- Run ID = `eval-<mode>-<UTC ts>-<sha8>` over provenance + outcomes
+  (wall-clock excluded → same seed + clock ⇒ same run ID).
+- S1 = new eval-only prompt rather than abusing the Director prompt with no
+  sub-reports (prompt-change: new artifact, versioned, hash in provenance).
+- Smoke numbers measure harness WIRING only (templated responder); every
+  smoke run carries `llm_backend=synthetic-recorded-v1` and is never quoted
+  as a result (I-11).
+
+**Verified:** `uv run pytest tests/unit/test_eval_harness.py` 14 passed;
+`uv run python -m consilium.eval.runners smoke` → 72 outcomes (6×4×3), all ok,
+S4: 12 approved round 1, 6 slips caught by the deterministic verifier and
+approved after revision (round 2). Full battery: ruff + format clean, mypy
+clean (109 files), lint-imports 8/8 kept, schema-check up to date,
+`pytest -m "not live"` 806 passed / 48 skipped, coverage 79%.
+**Not verified:** nothing live in 13.1 (offline by design).
+**CLINICAL-REVIEW:** none new (curated disagreement positions reuse the
+already-flagged topic list in thresholds.yaml).
+**MANUAL STEPS (13.1):** none.
+
+### Section 13.2 — Metrics + ablation ✅ DONE
+
+**Goal (plan 13.2):** S_inter (fixed eval-only embedding, similarity-vs-
+distance chosen once) + unique-fact coverage; unsupported-claim rate,
+omission rate, minority-opinion preservation, rounds-to-approval, latency
+p50/p95, tokens/cost; S1–S4 on identical cases, bootstrap 95% CIs, per-case
+paired differences. Exit: smoke ablation produces a stored run with CIs.
+
+**Files created/changed**
+- `src/consilium/eval/diversity.py` (NEW): `S_inter` = mean pairwise cosine
+  **SIMILARITY** (higher = more convergent) — fixed for the whole study
+  (§24.3). Eval-only embedder `hashed-ngram-tf@v1` (deterministic lexical:
+  unigrams+bigrams, sha256 feature hashing 4096-d, sublinear tf, L2) behind
+  an `Embedder` protocol; limit (lexical, not semantic) stated in the module
+  and recorded with every run. `role_specific_facts` (facts exactly one role
+  is routed) + `unique_fact_coverage`.
+- `src/consilium/eval/metrics.py` (NEW): `score_outcome` → `MetricRow`.
+  Instrument = production `verify_draft` on every stage's FINAL draft:
+  unsupported_claim_rate (UNSUPPORTED/BAD_REFERENCE/NUMERIC_MISMATCH claims),
+  draft_level_unsupported, omission_rate (OMITTED_FINDING / (3 + caveats)),
+  unsafe_language, out_of_scope_rate (kept SEPARATE from unsupported — S1/S2
+  saw everything), minority_preservation (curated cases, multi-agent stages),
+  s_inter, unique_fact_coverage, rounds_to_approval / unverified (S4), tokens,
+  cost_usd (null for unpriced models — never guessed), wall_ms, llm_latency_ms.
+- `src/consilium/eval/ablation.py` (NEW): `EvalConfig` loader; seeded
+  percentile **cluster bootstrap** over CASES (samples averaged within case,
+  `within_case_sd` reported); per-stage mean + CI95 + n; per-stage failure
+  rate and wall/LLM latency p50/p95; paired per-case differences (later −
+  earlier) with CIs for configured pairs; `score_run` refuses a manifest whose
+  sha256 ≠ the run's dataset_version; CLI `python -m consilium.eval.ablation
+  smoke` (run → score → store). Runner CLI removed (ablation owns it).
+- `configs/eval.yaml` (NEW): bootstrap (2000 resamples, 0.95, seed), paired
+  comparisons (S2−S1, S3−S2, S4−S3, S4−S1), pricing USD/1M tokens for
+  gpt-4o-mini-2024-07-18 (0.15 in / 0.60 out — estimate, verify before
+  quoting). Added to provenance `config_hashes`.
+- `Makefile` `eval-smoke` → ablation CLI. `tests/unit/test_eval_metrics.py`
+  (NEW, 15 tests); `test_eval_harness.py` updated (CLI test moved).
+
+**Verified:** 15 + 13 eval tests pass; `python -m consilium.eval.ablation smoke`
+stored a scored run with CIs for every stage/metric and paired diffs (smoke:
+S4−S3 unsupported-claim diff < 0 with CI excluding 0 — the seeded slip repair,
+i.e. WIRING, not a finding; S1/S2 out_of_scope > 0, S3/S4 = 0). Full battery:
+ruff + format clean, mypy clean (112 files), lint-imports 8/8, schema-check up
+to date, `pytest -m "not live"` 820 passed / 48 skipped.
+**Not verified:** no live numbers in 13.2 (offline by design).
+**CLINICAL-REVIEW:** none new.
+**MANUAL STEPS (13.2):** none.
+
+### Section 13.3 — Critic evaluation + clinician rubric ✅ DONE
+
+**Goal (plan 13.3):** fault injection as an eval stage in the run store;
+`eval/judge.py` + rubric tooling (accuracy, completeness, safety, usefulness);
+LLM judge optional, validated against clinician scores, judge model
+documented. Exit: fault-injection table in the stored run; rubric pipeline
+dry-run.
+
+**Files created/changed**
+- `src/consilium/eval/fault_injection.py`: mutations generalised to any
+  known-good draft (numeric faults relative to the vCDR fact: +0.3 gross,
+  +0.03 subtle; delete EVERY claim citing vCDR; laterality flip on every
+  laterality-citing claim; fabricated-with-ref uses `note.exam_findings` if
+  present else the tier fact; injected claim ID stays `c9`). v1 committed
+  reports regenerate BYTE-IDENTICAL (drift tests green). NEW
+  `eval_corpus()` (v1 entry + one templated routed draft per frozen case,
+  must verify clean, never critic-built), `is_applicable()` (no-op mutations
+  excluded from totals), `fault_injection_stage()` (3 layers x 8 classes:
+  caught/total/recall/Wilson CI95 + miss NAMES; clean false-rejection rate +
+  names; critic = any `CriticFn`, scripted offline or the real `Critic` live).
+- `src/consilium/eval/judge.py` (NEW): blinded, stage-stratified,
+  deterministic `RubricPacket` (no stage/roles/claim IDs; numeric claims show
+  their stated value) + separate `RubricKey`; strict `RubricScore` (1-5 per
+  dimension, opaque rater_id, kind clinician|llm_judge|synthetic);
+  `validate_scores`; `summarize` (per stage x dimension, bootstrap CI over
+  items); optional `LLMJudge` (identity `model@T` stored on every score);
+  `judge_agreement` (MAE, exact, within-one, Spearman); `dry_run` labelled
+  "SYNTHETIC rater scores + canned judge: pipeline dry run, NOT clinical data".
+- `prompts/judge/v1.md` (NEW, EVAL-ONLY).
+- `src/consilium/eval/runners.py`: `RunStore.attach` / `read_attachment`
+  (write-once companion files; run.json never modified).
+- `src/consilium/eval/metrics.py`: `bootstrap_ci` moved here (breaks an
+  ablation <-> judge import cycle).
+- `src/consilium/eval/ablation.py`: `add_eval_stages()` → run
+  `extras.fault_injection` + `extras.rubric_dry_run`; smoke uses
+  `ScriptedCritic` + canned judge; CLI now subcommands (`--out` first):
+  `smoke`, `rubric-export --run-id --per-stage`, `rubric-import --run-id
+  --scores` (validated against the key, attached write-once).
+- `tests/unit/test_eval_critic_rubric.py` (NEW, 12 tests); metrics CLI test
+  updated for the new argument order.
+
+**FINDING (verifier gap, NOT fixed — needs a human decision):** the
+laterality-consistency check exempts `cad.laterality = UNKNOWN`, so a draft
+asserting "left eye (OS)" for an unknown-eye image passes the deterministic
+layer (combined recall laterality_flip 6/7, miss = smoke-003). Fixing it means
+tightening `verify/deterministic.py` via the verifier-check skill + a
+fault-injection re-run; not done silently here.
+
+**Verified:** 45 eval tests pass (incl. v1 fault fixtures unchanged);
+`python -m consilium.eval.ablation smoke` stores a run with both extras;
+`rubric-export` (8 items) → synthetic scores → `rubric-import` round trip;
+lint-imports 8/8. Full battery: ruff/format/mypy/lint-imports/schema-check
+green; `pytest -m "not live"` 831 passed / 48 skipped (pytest overlapped the
+first 13.4 edits — the 13.4 battery is authoritative).
+**Not verified:** real critic recall and a real LLM judge (live, 13.4);
+no clinician has scored anything yet.
+**CLINICAL-REVIEW:** rubric dimensions, 1-5 scale and anchor wording
+(`eval/judge.py`, `prompts/judge/v1.md`) and the per-stage rubric sample size.
+**MANUAL STEPS (13.3):** clinical co-authors confirm the rubric; then
+`python -m consilium.eval.ablation rubric-export --run-id <full run>` →
+clinicians fill scores → `rubric-import`.
+
+### Section 13.4 — Full run + report generation ✅ DONE (live run on the synthetic set; full REFUGE-free set pending)
+
+**Goal (plan 13.4):** `eval/report.py` (tables FROM the stored run only),
+`make eval-full` (full frozen set, live LLM + dev endpoint, run stored), README
+"Differences from the paper"; negative results reported honestly. Exit: stored
+run ID; every README number traceable to a run.
+
+**Files created/changed**
+- `src/consilium/llm/client_openai.py` — **PRODUCTION FIX found by the live
+  eval:** OpenAI strict structured outputs reject JSON-Schema tuple arrays
+  (`prefixItems`) — `Disagreement.positions: tuple[tuple[Role, str], ...]`
+  → HTTP 400 "array schema missing items" → every live Director and
+  single-agent call failed (`LLM_REQUEST_REJECTED`); the app could never have
+  produced a live report. Fix stays in llm/ (contract §7 unchanged): SDK's own
+  `type_to_response_format_param` schema, ONLY `prefixItems` nodes rewritten to
+  `items: {anyOf}`; `chat.completions.create` + `response_model.
+  model_validate_json` (strict Pydantic still the gate; wrong arity → repair
+  loop); finish_reason content_filter/refusal → LLM_REFUSAL, length/empty/
+  invalid → ModelOutputInvalid, 4xx → LLM_REQUEST_REJECTED. Tuple-free schemas
+  are sent unchanged. Verified live: DirectorDraft, CriticVerdict, SubReport,
+  JudgeOutput accepted + valid.
+- `tests/unit/test_llm_openai_wire.py` (NEW, 9 tests; SDK `create` stubbed —
+  the pinned SDK vendors its own HTTP stack, so respx cannot intercept).
+- `src/consilium/eval/ablation.py`: `eval_settings()` (vision client forced
+  `fake` — eval reads recorded CAD only); `run_live()` (shared OpenAI client,
+  REAL Critic for fault injection, LLM judge = critic snapshot @T=0);
+  `record_full_set()` (vision endpoint ONCE per image, pin-checked, write-once
+  manifest, no paths stored); CLI `live`, `full --manifest`, `record --spec`
+  (progress prints counts only).
+- `src/consilium/eval/fault_injection.py`: critic `AppError` → fail-closed
+  rejection counted as `critic_errors` / `clean_critic_errors` (never a
+  detection). `eval/judge.py`: judge errors counted (`judge_errors`).
+  (First live attempt crashed in the fault stage on a critic
+  LLM_OUTPUT_INVALID before this fix — nothing stored; re-run succeeded.)
+- `src/consilium/eval/runners.py`: `Mode` smoke|live|full; `RunStore.attach_text`.
+- `src/consilium/eval/report.py` (NEW): Markdown from ONE stored run —
+  provenance, per-stage mean [CI] (n), failure rate, latency p50/p95, paired
+  per-case diffs, hypothesis table (supported / contradicted / not shown —
+  null + negative printed), fault table per layer with miss names and critic
+  errors, rubric (clinician scores if attached, else dry-run label), threats
+  to validity; README block between `<!-- eval:begin/end -->` incl. safety
+  operational results; CLI `--run-id --write --readme --out`.
+- `doc/eval_runs/eval-live-20261017T140231Z-d6ed738d/{run.json,report.md}`
+  (NEW, committed — the run README cites; synthetic data only, no key/PHI).
+- `README.md`: Evaluation section, generated eval block, "Differences from the
+  paper" (CDR formula, similarity-not-distance, real numbers, two-layer
+  verification incl. note facts, no pgvector, remote vision, REFUGE not
+  held-out for interim weights).
+- `Makefile`: `eval-live`, `eval-record SPEC=`, `eval-full`, `eval-report RUN=`.
+- Tests NEW: `test_eval_report.py` (7), `test_eval_live_paths.py` (6),
+  `test_readme_eval_block.py` (1: README block == readme_block(committed run)).
+
+**Stored live run `eval-live-20261017T140231Z-d6ed738d`** (gpt-4o-mini-2024-07-18,
+specialist/director T=0.2, critic T=0.0; 6 SYNTHETIC cases x 4 stages x 3
+samples; 72/72 stage runs ok). Results (synthetic cases — not evidence about
+real images):
+- S3−S2 S_inter −0.050 [−0.083, −0.024] → routing reduced convergence: supported.
+- S3−S2 unique-fact coverage −0.093 [−0.259, 0.000] → not shown.
+- S4−S3 unsupported-claim rate −0.042 [−0.134, 0.037] → not shown.
+- S4−S3 omission rate −0.256 [−0.342, −0.148] → supported.
+- S4−S1 unsupported-claim rate −0.081 [−0.174, −0.009] → supported.
+- **NEGATIVE:** S4 UNVERIFIED rate 1.000 (18/18 exhausted 3 rounds; 40 of 49
+  final open issues raised by the LLM critic: 27 unsupported, 13
+  omitted_finding). Live critic false-rejection on known-good drafts 7/7
+  (1.000). Minority-opinion preservation S2 0.667 → S3 0.167 → S4 0.000.
+- Fault injection (live critic): combined recall 7/7 every class, but only
+  because the critic rejects everything; deterministic layer as before
+  (fabricated_with_ref 0/7; laterality_flip 6/7 miss smoke-003); 5 critic
+  errors (fail-closed) on fabricated_no_ref.
+- Cost per case (est., list price): S1 $0.00042, S2 $0.00159, S3 $0.00154,
+  S4 $0.00380; S4 wall p50 23.7 s.
+
+**Verified:** final battery — ruff + format clean, mypy clean (114 files),
+lint-imports 8/8, schema-check up to date, `pytest -m "not live"` 854 passed /
+48 skipped, coverage 82%. Live run stored + report + README block regenerated
+from it; README-block traceability test green.
+**Not verified / not done:** `make eval-full` NOT run — no recorded full set
+(needs non-REFUGE images with synthetic notes + Deva's endpoint); clinician
+rubric not scored; run produced from a dirty tree (uncommitted Phase 13 code —
+recorded in provenance).
+**Open findings for the human (not fixed here):** (1) critic over-rejection →
+critic prompt v2 and/or different critic snapshot via prompt-change skill +
+fault-injection re-run; (2) verifier laterality gap for UNKNOWN (13.3);
+(3) minority-opinion loss in routed stages — Director prompt review;
+(4) `.env` lacks VISION_PINNED_REVISION (app fails closed in http mode).
+**CLINICAL-REVIEW:** rubric (13.3); curated disagreement topics (existing).
+**MANUAL STEPS (13.4):** add VISION_PINNED_REVISION to `.env`; choose a
+non-REFUGE eval image set + write `cases.json`; with Deva online run
+`make eval-record SPEC=cases.json` then `make eval-full`; clinicians score the
+rubric packet of the full run.
