@@ -30,6 +30,9 @@ from consilium.intake.extractor import load_extractor_prompt
 from consilium.llm.budget import TokenBudget
 from consilium.llm.client import LLMClient
 from consilium.llm.prompt_loader import PromptLoader
+from consilium.observability.instrument import InstrumentedLLM, InstrumentedVision
+from consilium.observability.langfuse_sink import LangfuseSink, sink_from_settings
+from consilium.observability.tracing import configure_tracing
 from consilium.schemas.enums import Role
 from consilium.vision.client import VisionClient
 from consilium.vision.config import (
@@ -98,7 +101,15 @@ def _assemble(
     image_store: ImageStore,
     rails: GuardedRails,
     fixture: str | None,
+    sink: LangfuseSink | None = None,
+    instrument: bool = False,
 ) -> Deps:
+    if instrument:
+        # Observability decorators (§18): metrics + spans + Langfuse metadata
+        # on every LLM/vision call, counts only. Real deps always; test kits
+        # keep the bare fakes so they can inspect them.
+        llm = InstrumentedLLM(llm, sink)
+        vision = InstrumentedVision(vision)
     loader = PromptLoader()
     return Deps(
         settings=settings,
@@ -160,6 +171,7 @@ def build_prod_deps(settings: Settings, *, image_store: ImageStore) -> Deps:
 
     if settings.vision_client_mode != "http":
         raise ValueError("prod deps require VISION_CLIENT_MODE=http (fake is tests/dev only)")
+    configure_tracing(settings)
     assert settings.vision_endpoint_url is not None  # enforced by Settings validator
     assert settings.vision_endpoint_token is not None
     assert settings.vision_pinned_revision is not None
@@ -182,4 +194,6 @@ def build_prod_deps(settings: Settings, *, image_store: ImageStore) -> Deps:
         image_store=image_store,
         rails=GuardedRails(engine),
         fixture=None,
+        sink=sink_from_settings(settings),
+        instrument=True,
     )
