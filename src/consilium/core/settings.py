@@ -64,6 +64,10 @@ class Settings(BaseSettings):
     langfuse_public_key: SecretStr | None = None
     langfuse_secret_key: SecretStr | None = None
     otel_endpoint: str | None = None
+    # Release/rollback switch: refuse new submissions with 503 (review keeps working).
+    intake_frozen: bool = False
+    # Worker /metrics port for Prometheus (0 disables; the API serves its own /metrics).
+    worker_metrics_port: int = Field(default=9100, ge=0, le=65535)
 
     # ----- Auth (§17) -----
     jwt_secret: SecretStr  # required secret — no default (HS* signing key)
