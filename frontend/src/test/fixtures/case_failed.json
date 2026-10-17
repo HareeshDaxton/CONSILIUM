@@ -4,8 +4,8 @@
   "laterality": "UNKNOWN",
   "created_at": "2026-10-16T09:30:00Z",
   "failure": {
-    "type": "VisionFailure",
-    "reason": "VISION_UNAVAILABLE"
+    "type": "VISION_UNAVAILABLE",
+    "reason": "vision endpoint unreachable after retries"
   },
   "cad_summary": null,
   "unverified": false
