@@ -59,7 +59,7 @@ class TestConfigLoaders:
 
     def test_models_yaml_parses(self) -> None:
         cfg = load_models_config()
-        assert cfg.endpoint.pinned_revision == "local-stub-not-deployed"
+        assert cfg.endpoint.pinned_revision.startswith("hf:pamixsun/")
         assert cfg.calibration.method == "temperature_scaling"
         assert cfg.calibration.temperature == 1.0
 
