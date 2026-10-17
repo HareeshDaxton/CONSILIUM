@@ -1,23 +1,27 @@
 # CONSILIUM model/endpoint pins (AGENTS.md §8.0). Revision pinning is a
 # fail-closed control: every endpoint response's endpoint_revision must equal
-# endpoint.pinned_revision, else VISION_UNAVAILABLE (mismatch). Training
-# packaging (Section 2.4) bumps the pin deliberately, never silently.
-version: "0.1.0"
+# endpoint.pinned_revision, else VISION_UNAVAILABLE (mismatch). Changing a
+# model is a deliberate, versioned change — never silent.
+version: "0.2.0"
 
 endpoint:
-  # PLACEHOLDER until the dev HF Inference Endpoint is deployed (Section 2.4
-  # manual step). The fake client and local stub server report this value.
-  pinned_revision: "local-stub-not-deployed"
+  # Served by Deva's GPU vision server (Deva/server.py). This string MUST equal
+  # Deva/wire.py REVISION (tests/unit/test_deva_wire.py enforces it).
+  pinned_revision: "hf:pamixsun/swinv2_tiny_for_glaucoma_classification@a25a03d9ff23+hf:pamixsun/segformer_for_optic_disc_cup_segmentation@a0463fb6c2bf"
 
+# INTERIM third-party weights (Apache-2.0), fine-tuned on REFUGE by their
+# author — used until the in-repo training (training/, Phase 2) has produced
+# our own weights. Evaluation caveat: because they were trained on REFUGE,
+# REFUGE must NOT be reported as held-out/external data for these weights (§8.5).
 classifier:
-  model_id: "microsoft/swinv2-small-patch4-window8-256"
-  revision: "not-trained-yet"      # set by training/endpoint_packaging (2.4)
-  mlflow_run_id: "none"
+  model_id: "pamixsun/swinv2_tiny_for_glaucoma_classification"
+  revision: "a25a03d9ff23d6fbaf6cd7a329373253f4671c63"
+  mlflow_run_id: "none-third-party"
 
 segmenter:
-  model_id: "nvidia/mit-b0"
-  revision: "not-trained-yet"
-  mlflow_run_id: "none"
+  model_id: "pamixsun/segformer_for_optic_disc_cup_segmentation"
+  revision: "a0463fb6c2bf184cf398e5fd82a8194e01e66e7f"
+  mlflow_run_id: "none-third-party"
 
 calibration:
   method: "temperature_scaling"
