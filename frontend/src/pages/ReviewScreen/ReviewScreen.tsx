@@ -17,9 +17,10 @@ export function ReviewScreen() {
   const caseQ = useCase(id);
   const draftQ = useDraft(id);
 
-  // Where to go next follows the ACTION the clinician took, not a status.
-  function onSubmitted(result: ReviewResult) {
-    navigate(result.action === "REJECT" ? `/cases/${id}` : `/cases/${id}/report`);
+  // Back to the case's report page (it shows whatever the server now says:
+  // the signed report with export, or the rejection).
+  function onSubmitted(_result: ReviewResult) {
+    navigate(`/cases/${id}`);
   }
 
   return (
