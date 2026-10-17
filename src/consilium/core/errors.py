@@ -114,6 +114,12 @@ class StatusConflict(AppError):
     problem_type: str = "conflict-status"
 
 
+class ServiceUnavailable(AppError):
+    """Operator switch (e.g. INTAKE_FROZEN during a rollback): retry later."""
+
+    problem_type: str = "service-unavailable"
+
+
 class RequestInvalid(AppError):
     """Semantically invalid request (e.g. missing reason codes)."""
 
