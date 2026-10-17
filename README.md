@@ -138,3 +138,45 @@ Full report: `doc/eval_runs/eval-live-20261017T140231Z-d6ed738d/report.md` (rege
   interpretation (calibration, tier, CDR, quality checks) happens in this repo.
 - **Held-out data.** The interim vision weights were fine-tuned on REFUGE, so REFUGE images
   cannot be used for the full evaluation set of those weights.
+
+## Observability and runbook
+
+`docker compose --profile observability up -d` adds Prometheus (http://localhost:9090) and
+Grafana (http://localhost:3001, dashboard "CONSILIUM overview"). Prometheus scrapes the API
+(`:8000/metrics`) and the worker (`:9100/metrics`, `WORKER_METRICS_PORT`). Set
+`OTEL_ENDPOINT` to export traces (one span per graph node, LLM call and vision call), and
+set `LANGFUSE_HOST` / `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` to send LLM generation
+metadata to a self-hosted Langfuse. Spans and Langfuse events carry identities and counts
+only, never prompts, notes, images or model output. The alert rules are in
+`deploy/observability/alerts.yml`.
+
+| Alert | Threshold | Action |
+|---|---|---|
+| `VisionFailureSpike` | more than 10% of vision calls fail for 10 min | Check that Deva's server or the endpoint is up and serving the pinned revision. Roll the pin back only through a deliberate `configs/models.yaml` change. Cases fail closed meanwhile. |
+| `VisionRevisionMismatch` | any mismatch in 5 min | The endpoint is serving a different model than the one CONSILIUM was tuned for. Stop and redeploy the pinned weights, or bump the pin deliberately together with thresholds and calibration (`vision-endpoint` skill). |
+| `VisionColdStartSpike` | more than 0.3 retries per successful vision call for 15 min | Switch the endpoint to always-on, or raise `VISION_TIMEOUT_S`. This is a cost decision, not a code change. |
+| `CriticRoundOneApprovalNear100` | more than 98% of drafts approved in round 1 over 6 h (min 20) | Possible critic degradation. Run `make eval-live` and check the fault-injection table (`critic-fault-injection` skill) before trusting new approvals. |
+| `NeedsAttentionDrift` | more than 25% of drafted cases end NEEDS_ATTENTION over 6 h | Triage a sample with the `bad-report-triage` skill. The Phase 13 live run already shows critic over-rejection (S4 UNVERIFIED 1.0), so this alert is expected to fire until critic prompt v2 lands. |
+| `ReviewBacklog` | more than 20 cases awaiting review (24 h arrivals minus decisions) for 2 h | Staffing, not a system change. Nothing is ever auto-approved. |
+| `LLMErrorSpike` | more than 5% of LLM calls failing for 10 min | Check the provider status, `OPENAI_API_KEY` and quota, and the pinned snapshot's availability. Cases fail closed. |
+
+## Release status (V1)
+
+V1 is **ready for a supervised pilot on synthetic or consented research data only**. It is not ready
+for real patient data until the open items in [doc/release_checklist.md](doc/release_checklist.md) are
+signed. Supporting documents: [threat model](doc/threat_model.md), [backup and restore](doc/dr.md),
+[load test](doc/load_test.md), [model card](doc/MODEL_CARD.md).
+
+To freeze new submissions during an incident or rollback, set `INTAKE_FROZEN=true`. New cases then get
+a 503, while review and reports keep working.
+
+## Provider data terms
+
+**Not yet recorded: a human must check this before any real patient data is processed.**
+
+Check the following:
+- OpenAI API data retention and zero-data-retention eligibility.
+- Hugging Face Inference Endpoints data handling and region.
+- The ngrok tunnel used in development: replace it with a private endpoint.
+
+Record the date, the terms version and the decision here.
