@@ -36,6 +36,7 @@ This document must be reviewed again before any deployment that processes real p
 | I2 | Image sent to the LLM provider | Agents receive facts only; no image path into `llm/` (I-14, import contracts) | `importlinter.ini` |
 | I3 | Secrets committed | gitleaks over full history in CI; `.env` gitignored | `.gitleaks.toml`, CI `security` job |
 | I4 | Error bodies echo input | RFC 7807 problem bodies carry reason codes, not detail/input | `test_api_auth.py::test_validation_error_does_not_echo_input` |
+| I5 | Identifiers in the note reach OpenAI | Deterministic de-identification before extraction (I-6): labelled/titled names, US and Indian phone numbers, Aadhaar-shaped numbers, MRN/UHID/OP numbers, DOB, emails; `ClinicalNote` has no identifier field; the same patterns block PHI echo in drafts. Residual risk: untitled, ALL-CAPS or non-Latin-script names, addresses, landlines (gap list in `phi_patterns.yaml`) | `tests/unit/test_deidentify.py` |
 | D1 | Token or cost exhaustion | Per-case LLM token budget; bounded retries and critic rounds | `llm/budget.py` |
 | D2 | Oversized uploads | Size cap, format allowlist, resolution floor before the endpoint | image precheck |
 | E1 | Submitter approves own case | Only `clinician` can review; self-approval refused | `test_self_approval_refused` |

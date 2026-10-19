@@ -11,7 +11,7 @@ anything only the user can do (account registrations, dataset downloads, API
 keys into `.env`, tool installs, OS policy changes). If the list is empty,
 the section needed no manual work.
 
-Current position: **PHASE 14 COMPLETE (14.1 observability + alerts + runbook; 14.2 threat model, CI security scans, erasure job, PHI sweep; 14.3 load test + DR rehearsal; 14.4 release checklist + model card + INTAKE_FROZEN rollback switch). V1 = supervised-pilot ready; real-patient release blocked on OPEN human items in doc/release_checklist.md (critic over-rejection, provider terms, regulatory, CLINICAL-REVIEW sign-offs).**
+Current position: **PHASE 14 COMPLETE (14.1 observability + alerts + runbook; 14.2 threat model, CI security scans, erasure job, PHI sweep; 14.3 load test + DR rehearsal; 14.4 release checklist + model card + INTAKE_FROZEN rollback switch; 14.5 UI redesign; 14.6 Indian-format PHI patterns). V1 = supervised-pilot ready; real-patient release blocked on OPEN human items in doc/release_checklist.md (critic over-rejection, provider terms, regulatory, CLINICAL-REVIEW sign-offs).**
 
 ---
 

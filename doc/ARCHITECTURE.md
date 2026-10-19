@@ -430,7 +430,7 @@ All thresholds in `configs/thresholds.yaml`; all formulas unit-tested with synth
 **`note_pipeline.extract(raw_text, deps) -> (ClinicalNote, NoteExtraction)`** — fixed order (AGENTS.md §10):
 
 1. `guardrails.input_checks.run(raw_text)` — deterministic first (length ≤ 4000 chars, charset, PHI patterns from `configs/guardrails/policies/phi_patterns.yaml`, injection lexicon), then NeMo input flow for model-needed injection detection. Trigger → `PolicyViolation` (pre-extraction → `REJECTED_INPUT` or redact per config).
-2. `deidentify.redact(text)` — pattern substitutions (names, phone, MRN-like, emails). Returns `(redacted_text, pattern_names_fired)`. Values never stored — pattern names only.
+2. `deidentify.redact(text)` — pattern substitutions, applied in file order (labelled and titled names, US and Indian phone/mobile numbers, Aadhaar-shaped numbers, MRN/UHID/OP-style record numbers, labelled DOB, emails; the YAML header lists what is NOT caught). Returns `(redacted_text, pattern_names_fired)`. Values never stored — pattern names only.
 3. LLM extraction — `prompts/note_extractor/v1.md` rendered with the redacted text inside a delimited, explicitly non-instructional data block; structured output bound to `ClinicalNote`; ≤2 repair retries with validation errors fed back; anti-over-extraction instruction ("leave fields empty when the note does not state them"); refusal → `AgentFailure`.
 4. Assemble `NoteExtraction` provenance: model snapshot, prompt version, redaction pattern names, confidence (heuristic: fraction of note content mapped to fields; LLM self-assessed confidence is **not** trusted).
 
@@ -606,7 +606,7 @@ class BaseSpecialist:
 | Clinician | clinically right for this patient? |
 
 **`input_checks.py`** (runs on raw note, before extraction):
-- Deterministic pre-checks: length cap (4000), charset allowlist, PHI patterns (`configs/guardrails/policies/phi_patterns.yaml` — names, phones, MRNs, emails → redact or block per pattern config), injection lexicon (instruction-like phrases, "ignore previous", tool-request patterns).
+- Deterministic pre-checks: length cap (4000), charset allowlist, PHI patterns (`configs/guardrails/policies/phi_patterns.yaml` — names, US/Indian phones, Aadhaar, MRN/UHID/OP numbers, DOB, emails → redact or block per pattern config), injection lexicon (instruction-like phrases, "ignore previous", tool-request patterns).
 - Then NeMo input rail (`configs/guardrails/rails/input_note.co`) for model-needed injection detection. On trigger: audit event, `REJECTED_INPUT` (or redact+continue per pattern policy), actionable message.
 
 **`output_checks.py`** (runs on `DirectorDraft` before clinician view):

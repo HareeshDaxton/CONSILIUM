@@ -13,7 +13,8 @@ context size and avoid re-reading anything already summarized here.
 Do NOT read older phase logs — the header + last entry are the checkpoint.
 CURRENT POSITION (as of last checkpoint): Phase 14 COMPLETE (observability +
 alerts + runbook; threat model + CI security scans + erasure job; load test +
-DR rehearsal; release checklist + model card + INTAKE_FROZEN). All 14 plan
+DR rehearsal; release checklist + model card + INTAKE_FROZEN), then user-directed
+14.5 (UI redesign) and 14.6 (Indian-format PHI patterns). All 14 plan
 phases implemented. V1 = supervised-pilot ready; real-patient release blocked
 on OPEN human items in doc/release_checklist.md.
 NEXT TASK: fix critic over-rejection (critic prompt v2 via prompt-change skill
