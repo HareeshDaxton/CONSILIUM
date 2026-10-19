@@ -7,18 +7,50 @@
 #   action  — "redact" is the only V1 action. The matched VALUE is replaced
 #             with "[REDACTED:<name>]" and is never stored or logged.
 #
+# Patterns run IN ORDER on the progressively redacted text (deidentify.redact),
+# so longer identifiers (Aadhaar 12 digits) come before shorter shapes that
+# could otherwise claim part of them (mobile 10 digits, phone 3-3-4).
+#
 # Design rules (SKILLS.md note-extraction step 2):
 #   - Patterns must NOT eat clinical content: plain dates ("2024-01-15"),
 #     follow-up intervals ("2-4 months"), IOP readings, and ages are clinical
 #     data and must survive. Identifier patterns therefore require an
-#     explicit label ("DOB:", "MRN", "Name:") or a rigid shape (phone, SSN,
-#     email). Unlabelled names/dates are NOT caught here — that residual risk
-#     is accepted in V1 and covered by the extraction contract (fields are
-#     typed; there is no "patient name" field to put them in).
+#     explicit label ("DOB:", "MRN", "Name:"), a title ("Mr", "Smt") or a
+#     rigid shape (phone, Aadhaar, SSN, email).
 #   - Every pattern has positive + negative tests in tests/unit/test_deidentify.py.
+#   - This file is also the output rail's PHI-echo list (guardrails/output_checks.py):
+#     a draft matching any pattern goes to NEEDS_ATTENTION.
+#
+# What these patterns do NOT catch (gap list, guardrail-rule skill step 7).
+# Residual risk is accepted in V1; the extraction contract has no field to put
+# a name or identifier in (ClinicalNote is typed):
+#   - names with no label and no title ("Ramesh Kumar came for review")
+#   - ALL-CAPS names ("RAMESH KUMAR"), single-word labelled names ("Name: Ramesh"),
+#     and names in non-Latin scripts (Tamil, Hindi, ...)
+#   - Indian landlines (044-2345 6789) and mobiles written in other groupings
+#   - unlabelled record numbers, ward/bed numbers, addresses, PIN codes
+#   - "Patient: Ramesh Kumar" without a title ("Patient:" alone is not a label,
+#     because "Patient: Known Case Of POAG" is clinical text)
+# Format detection is not identity verification: a 4-4-4 number is redacted
+# whether or not it is a real Aadhaar.
 
-version: 1
+version: 2
 patterns:
+  - name: aadhaar_number
+    action: redact
+    # Labelled Aadhaar/UID in any grouping ("Aadhaar No. 123456789012",
+    # "UID: 1234 5678 9012"), or the rigid unlabelled 4-4-4 shape with a
+    # space or hyphen ("1234 5678 9012"). A bare 12-digit run without a label
+    # is NOT matched (could be a lab or device number).
+    pattern: '(?i:\b(?:aadhaar|aadhar|uid(?:ai)?)\b(?:\s*(?:no\.?|number|id))?[.:\s#-]*\d{4}[ -]?\d{4}[ -]?\d{4}\b)|(?<!\d)\d{4}[ -]\d{4}[ -]\d{4}(?!\d)'
+
+  - name: indian_mobile_number
+    action: redact
+    # Indian mobile (starts 6-9, 10 digits): 9876543210, 98765 43210,
+    # +91 98765 43210, +91-98765-43210, 098765 43210. Digit boundaries stop it
+    # matching inside a longer number.
+    pattern: '(?<![\d+])(?:\+91[ .-]?|0)?[6-9]\d{4}[ .-]?\d{5}(?!\d)'
+
   - name: phone_number
     action: redact
     # 555-123-4567 / (555) 123-4567 / +1 555 123 4567. The 3-3-4 grouping is
@@ -39,21 +71,31 @@ patterns:
     action: redact
     flags: [IGNORECASE]
     # Labelled identifiers only: "MRN 123456", "Medical Record Number: 12345",
-    # "Patient ID #123456". A bare number is clinical content, not an MRN.
-    pattern: '\b(?:MRN|medical record(?: number)?|patient ID|hospital no)[.:\s#]*\d{4,}\b'
+    # "Patient ID #123456", "MRN: TN-2026-12345", "UHID: 2026001234",
+    # "OP No: 45678", "Reg. No 2026/123". The label must end at a word boundary
+    # ("hospital not", "patient identified" are prose) and the identifier must
+    # contain a digit ("medical record review" is prose).
+    pattern: '\b(?:MRN|UHID|medical record(?: number)?|patient ID|hospital no|(?:OP|IP|reg(?:istration)?)\.?\s?no)\b[.:\s#-]*(?=[A-Z0-9/-]*\d)[A-Z0-9]+(?:[-/][A-Z0-9]+)*\b'
 
   - name: date_of_birth
     action: redact
     flags: [IGNORECASE]
-    # Labelled DOB only ("DOB: 03/04/1959", "date of birth 1959-03-04",
-    # "born 4 March 1959" is NOT matched — month-name dates are not numeric-
-    # shape identifiers and appear in clinical histories).
-    pattern: '\b(?:DOB|date of birth|born on)[.:\s]*(?:\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{4}[/-]\d{1,2}[/-]\d{1,2})\b'
+    # Labelled DOB only ("DOB: 03/04/1959", "D.O.B: 03-04-1959",
+    # "date of birth 1959-03-04"). "born 4 March 1959" is NOT matched —
+    # month-name dates are not numeric-shape identifiers and appear in
+    # clinical histories.
+    pattern: '\b(?:D\.?O\.?B|date of birth|born on)[.:\s]*(?:\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{4}[/-]\d{1,2}[/-]\d{1,2})\b'
 
   - name: named_person
     action: redact
-    # Labelled capitalised full names: "Patient name: Jane Doe",
-    # "Referred by Dr. John Smith", "Name: Jane Doe". The LABEL match is
-    # case-insensitive but the NAME part is case-SENSITIVE so lowercase
-    # clinical phrases ("name of the drug") survive.
-    pattern: '\b(?i:patient(?:''s)? name|name|referred by(?: Dr\.?)?|signed)[.:\s]+[A-Z][a-z]+(?: [A-Z][a-z]+)+\b'
+    # Two branches:
+    #  1. Labelled capitalised full names (2+ words): "Patient name: Jane Doe",
+    #     "Referred by Dr. John Smith", "Name: Ramesh Kumar". The LABEL is
+    #     case-insensitive; the NAME is case-SENSITIVE so lowercase clinical
+    #     phrases ("name of the drug") survive.
+    #  2. Titled names (1+ words, optional initials): "Mr Ramesh Kumar",
+    #     "Mr. R. Kumar", "Shri K Ramesh", "Smt Lakshmi Devi", "S/o Suresh".
+    #     Titles are case-SENSITIVE so "MS" (multiple sclerosis), "w/o"
+    #     (without) and "c/o" (complains of) are not titles. Up to 4 name words
+    #     are taken, so a capitalised word right after a name may be redacted too.
+    pattern: '(?:\b(?i:patient(?:''s)? name|name|referred by(?: Dr\.?)?|signed)[.:\s]+[A-Z][a-z]+(?: [A-Z][a-z]+)+|\b(?:Mr|Mrs|Ms|Miss|Dr|Prof|Shri|Smt|Kumari|S/o|D/o|W/o)\.?\s+(?:[A-Z]\.\s?|[A-Z]\s)*[A-Z][a-z]+(?:[-''][A-Z][a-z]+)?(?: [A-Z][a-z]+(?:[-''][A-Z][a-z]+)?){0,3})\b'
