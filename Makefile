@@ -47,8 +47,8 @@ eval-full:      ## Full ablation: recorded full set (data/eval/full_v1.json) + L
 eval-report:    ## Tables from a stored run only: make eval-report RUN=<run_id>
 	uv run python -m consilium.eval.report --run-id $(RUN)
 
-migrate:        ## Alembic migrations (Phase 9)
-	@echo "migrate: not implemented until Phase 9" && exit 1
+migrate:        ## Apply DB migrations (uses DATABASE_URL if set, else alembic.ini's local default)
+	uv run alembic upgrade head
 
 serve:          ## API dev server (app factory; env from .env)
 	uv run uvicorn consilium.api.main:create_app --factory --reload
