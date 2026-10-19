@@ -4286,3 +4286,40 @@ the pinned track. Sign-in page rebuilt: same 3D eye (stage 0) on the right,
 masked "Sign in" title + staggered card on the left, warm token form; all
 test hooks kept. Verified: tsc clean, vitest 83/83, build ok, screenshots
 (hero, mid-transition burst, isolation, sign-in) reviewed at 1440/390.
+
+### Section 14.6 — Indian-format PHI de-identification patterns ✅ DONE (user-directed)
+
+**Goal (user, 2026-10-19):** Phase 3 manual item — the PHI filter was written
+for US-style notes; make it catch Indian clinic formats before any note text
+reaches OpenAI (I-6), without eating clinical content (note-extraction +
+guardrail-rule skills).
+
+**Files:** `configs/guardrails/policies/phi_patterns.yaml` (version 1 → 2):
+NEW `aadhaar_number` (labelled any grouping, or unlabelled rigid 4-4-4),
+NEW `indian_mobile_number` (6-9 start, 10 digits, optional +91 / 0, digit
+boundaries); `medical_record_number` adds UHID / OP No / IP No / Reg. No,
+alphanumeric + hyphen/slash IDs (TN-2026-12345), label must end at a word
+boundary and the ID must contain a digit; `date_of_birth` adds D.O.B;
+`named_person` adds a case-SENSITIVE title branch (Mr/Mrs/Ms/Miss/Dr/Prof/
+Shri/Smt/Kumari/S/o/D/o/W/o, initials, 1-4 name words). Order: Aadhaar before
+mobile before phone. Header documents run order, the output-rail PHI-echo
+reuse, and the gap list. `tests/unit/test_deidentify.py`: +20 positives,
++14 Indian near-misses, +1 full-note leak test.
+
+**Key decisions:** the externally suggested patterns were corrected before
+use — its MRN rule redacted prose ("hospital not", "patient identified",
+"medical record review") and its case-insensitive titles matched "MS"
+(multiple sclerosis); "Patient:" alone is NOT a name label ("Patient: Known
+case of POAG"). Gaps accepted for V1 (in the YAML): unlabelled/untitled
+names, ALL-CAPS and non-Latin-script names, landlines, addresses/PIN codes.
+
+**Verified:** synthetic run of the user's 10 example notes + 13 more
+positives and 21 clinical near-misses — all correct; `test_deidentify.py`
+62 passed; ruff + format clean; `pytest -m "not live"` 897 passed / 0 failed
+/ 50 skipped.
+**Not verified:** the 50 skipped Postgres integration/e2e tests (Docker not
+running) — they push notes through input_rail/output_rail end to end.
+**CLINICAL-REVIEW:** none new (input_rail.yaml `phi.on_match: redact` stands).
+**MANUAL STEPS:** start Docker Desktop, `docker compose up -d postgres`,
+`uv run pytest tests/integration tests/e2e -q`; when available, test real
+clinic note formats (synthetic values) and send misses.
