@@ -15,3 +15,10 @@ scrape_configs:
     metrics_path: /metrics
     static_configs:
       - targets: ["worker:9100"]
+  # The app run on the host with scripts/run_app.py (API + worker in ONE
+  # process, so :8000/metrics carries the pipeline metrics too). Shows DOWN
+  # when you use the compose api/worker instead — that is expected.
+  - job_name: consilium-local
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["host.docker.internal:8000"]

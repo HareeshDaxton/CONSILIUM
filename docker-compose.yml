@@ -123,12 +123,16 @@ services:
 
   # ---------------------------------------------------------------------
   # OPTIONAL observability stack (AGENTS.md §18): `docker compose --profile
-  # observability up -d`. Prometheus scrapes api:8000 + worker:9100 and loads
+  # observability up -d`. Prometheus scrapes api:8000 + worker:9100 (compose
+  # app) and host.docker.internal:8000 (scripts/run_app.py on the host) and loads
   # deploy/observability/alerts.yml; Grafana (http://localhost:3001, admin/admin
   # on first login — dev only) is provisioned with the CONSILIUM dashboard.
+  # With run_app.py, start ONLY these two (no compose api/worker):
+  #   docker compose --profile observability up -d --no-deps prometheus grafana
   prometheus:
     profiles: ["observability"]
     image: prom/prometheus:v2.53.0
+    extra_hosts: ["host.docker.internal:host-gateway"]  # Linux; built in on Docker Desktop
     volumes:
       - ./deploy/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./deploy/observability/alerts.yml:/etc/prometheus/alerts.yml:ro
