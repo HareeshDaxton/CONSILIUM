@@ -24,13 +24,19 @@ Error mapping (SKILLS.md llm-client-and-fakes):
   - other 4xx APIStatusError                → AgentFailure(LLM_REQUEST_REJECTED)
 
 Model IDs come from config as dated snapshots (AGENTS.md §6) — never floating
-aliases. Message bodies are never logged (I-6/I-7).
+aliases, except the recorded critic exception (core/settings.py
+``DEFAULT_CRITIC_MODEL``). Message bodies are never logged (I-6/I-7).
+
+Per-model options (``model_options``, from ``Settings.llm_model_options``):
+reasoning models take ``reasoning_effort`` / ``verbosity``; they are sent only
+for the model they are configured for, so other agents' calls are unchanged.
 """
 
 from __future__ import annotations
 
 import copy
 import time
+from collections.abc import Mapping
 from typing import Any, TypeVar, cast
 
 import openai
@@ -87,8 +93,15 @@ def response_format_for(response_model: type[BaseModel]) -> dict[str, Any]:
 class OpenAILLMClient:
     """LLMClient backed by the OpenAI Chat Completions structured-output API."""
 
-    def __init__(self, api_key: str, *, base_url: str | None = None) -> None:
+    def __init__(
+        self,
+        api_key: str,
+        *,
+        base_url: str | None = None,
+        model_options: Mapping[str, Mapping[str, str]] | None = None,
+    ) -> None:
         self._client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+        self._model_options = {m: dict(o) for m, o in (model_options or {}).items()}
 
     async def generate(
         self,
@@ -102,6 +115,7 @@ class OpenAILLMClient:
         tags: dict[str, str],
     ) -> ParsedResponse[T]:
         started = time.monotonic()
+        opts = self._model_options.get(model, {})
         try:
             completion = await self._client.chat.completions.create(
                 model=model,
@@ -112,6 +126,10 @@ class OpenAILLMClient:
                 response_format=cast("ResponseFormat", response_format_for(response_model)),
                 temperature=temperature,
                 max_completion_tokens=max_output_tokens,
+                reasoning_effort=cast("Any", opts["reasoning_effort"])
+                if "reasoning_effort" in opts
+                else openai.omit,
+                verbosity=cast("Any", opts["verbosity"]) if "verbosity" in opts else openai.omit,
                 timeout=timeout_s,
             )
         except _TRANSIENT_ERRORS as exc:

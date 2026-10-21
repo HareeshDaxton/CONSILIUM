@@ -14,6 +14,7 @@ from pydantic import ValidationError as PydanticValidationError
 from consilium.agents.director import Director
 from consilium.context.facts import F
 from consilium.core.errors import AgentFailure, ValidationFailure
+from consilium.core.settings import DEFAULT_DIRECTOR_PROMPT_VERSION as DIRECTOR_V
 from consilium.core.settings import Settings
 from consilium.llm.client_fake import CannedCall, CannedResponse, FakeLLMClient, FakeMode
 from consilium.llm.prompt_loader import PromptLoader
@@ -96,7 +97,7 @@ def _draft_payload(*, revision: int = 0) -> dict[str, Any]:
 
 def _director(settings: Settings, llm: FakeLLMClient) -> Director:
     return Director(
-        prompt=PromptLoader().load("director", "v1"),
+        prompt=PromptLoader().load("director", DIRECTOR_V),
         llm=llm,
         model=settings.llm_model_director,
         temperature=settings.llm_temperature_director,
@@ -104,7 +105,7 @@ def _director(settings: Settings, llm: FakeLLMClient) -> Director:
 
 
 def _fake(payload: dict[str, Any]) -> FakeLLMClient:
-    return FakeLLMClient.valid(payload, agent="director", prompt_version="v1")
+    return FakeLLMClient.valid(payload, agent="director", prompt_version=DIRECTOR_V)
 
 
 async def test_draft_refs_resolve_and_limitations_present(settings: Settings) -> None:
@@ -112,7 +113,7 @@ async def test_draft_refs_resolve_and_limitations_present(settings: Settings) ->
     llm = _fake(_draft_payload())
     resp = await _director(settings, llm).draft(_subreports(), ctx)
     draft = resp.data
-    assert resp.prompt_version == "v1"
+    assert resp.prompt_version == DIRECTOR_V
     fact_ids = {f.id for f in ctx.facts}
     for claim in draft.claims:
         assert set(claim.evidence_refs) <= fact_ids
@@ -170,7 +171,7 @@ async def test_revise_bumps_revision_and_carries_issue_list_only(
 
 async def test_refusal_fails_closed_never_retried(settings: Settings) -> None:
     llm = FakeLLMClient(
-        {("director", "v1", "default"): CannedResponse((CannedCall(FakeMode.REFUSAL),))}
+        {("director", DIRECTOR_V, "default"): CannedResponse((CannedCall(FakeMode.REFUSAL),))}
     )
     with pytest.raises(AgentFailure):
         await _director(settings, llm).draft(_subreports(), _global_ctx())
@@ -279,7 +280,11 @@ async def test_single_position_disagreement_is_schema_rejected(
         DirectorDraft.model_validate(payload)
 
     llm = FakeLLMClient(
-        {("director", "v1", "default"): CannedResponse((CannedCall(FakeMode.SCHEMA_VIOLATING),))}
+        {
+            ("director", DIRECTOR_V, "default"): CannedResponse(
+                (CannedCall(FakeMode.SCHEMA_VIOLATING),)
+            )
+        }
     )
     with pytest.raises(ValidationFailure):
         await _director(settings, llm).draft(_polar_subreports(*CASE_ESCALATION), _global_ctx())

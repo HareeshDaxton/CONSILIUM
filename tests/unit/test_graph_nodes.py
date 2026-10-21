@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import pytest
 
-from consilium.core.settings import Settings
+from consilium.core.settings import DEFAULT_CRITIC_PROMPT_VERSION, Settings
+from consilium.core.settings import DEFAULT_DIRECTOR_PROMPT_VERSION as DIRECTOR_V
 from consilium.eval import fault_injection as fi
 from consilium.graph.deps import Deps, MemoryImageStore, build_fake_deps
 from consilium.graph.nodes import NODES, invoke
@@ -34,10 +35,10 @@ def _llm(**overrides: tuple[CannedCall, ...]) -> FakeLLMClient:
         ("note_extractor", "v1", "default"): CannedResponse(
             (CannedCall(FakeMode.VALID, NOTE_PAYLOAD),)
         ),
-        ("director", "v1", "default"): CannedResponse(
+        ("director", DIRECTOR_V, "default"): CannedResponse(
             (CannedCall(FakeMode.VALID, ENTRY.draft.model_dump(mode="json")),)
         ),
-        ("critic", "v1", "default"): CannedResponse(
+        ("critic", DEFAULT_CRITIC_PROMPT_VERSION, "default"): CannedResponse(
             (CannedCall(FakeMode.VALID, {"approved": True, "issues": [], "round": 1}),)
         ),
     }

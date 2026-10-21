@@ -344,7 +344,9 @@ async def run_live(
     settings) and the rubric dry run a real LLM judge (critic snapshot, T=0)."""
     from consilium.llm.client_openai import OpenAILLMClient
 
-    client: LLMClient = llm or OpenAILLMClient(settings.openai_api_key.get_secret_value())
+    client: LLMClient = llm or OpenAILLMClient(
+        settings.openai_api_key.get_secret_value(), model_options=settings.llm_model_options()
+    )
     models = EvalModels.from_settings(settings)
     runner = default_runner(models)
     plan = AblationPlan(
@@ -362,19 +364,20 @@ async def run_live(
         llm=client,
         model=models.critic.model,
         temperature=models.critic.temperature,
+        max_output_tokens=models.critic_max_output_tokens,
         timeout_s=models.timeout_s,
     )
 
     async def critic_fn(d: DirectorDraft, g: GlobalContext, r: int) -> CriticVerdict:
         return await run_critic(d, g, r, critic)
 
-    judge = LLMJudge(llm=client, model=models.critic.model, temperature=0.0)
+    judge = LLMJudge(llm=client, model=models.critic.model, temperature=models.critic.temperature)
     return await add_eval_stages(
         record,
         plan.loaded,
         runner,
         critic=critic_fn,
-        critic_label=f"live Critic {models.critic.model}@T={models.critic.temperature}",
+        critic_label=f"live Critic {models.critic.label()}",
         judge=judge,
     )
 

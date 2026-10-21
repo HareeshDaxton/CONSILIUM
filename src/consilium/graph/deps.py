@@ -124,17 +124,18 @@ def _assemble(
         llm=llm,
         specialists=build_specialists(settings=settings, llm=llm, fixture=fixture),
         director=Director(
-            prompt=loader.load("director", "v1"),
+            prompt=loader.load("director", settings.director_prompt_version),
             llm=llm,
             model=settings.llm_model_director,
             temperature=settings.llm_temperature_director,
             fixture=fixture,
         ),
         critic=Critic(
-            prompt=loader.load("critic", "v1"),
+            prompt=loader.load("critic", settings.critic_prompt_version),
             llm=llm,
             model=settings.llm_model_critic,
             temperature=settings.llm_temperature_critic,
+            max_output_tokens=settings.llm_max_output_tokens_critic,
             fixture=fixture,
         ),
         output_policy=load_output_rail(),
@@ -189,7 +190,10 @@ def build_prod_deps(settings: Settings, *, image_store: ImageStore) -> Deps:
     )  # passthrough
     return _assemble(
         settings,
-        llm=OpenAILLMClient(settings.openai_api_key.get_secret_value()),
+        llm=OpenAILLMClient(
+            settings.openai_api_key.get_secret_value(),
+            model_options=settings.llm_model_options(),
+        ),
         vision=vision,
         image_store=image_store,
         rails=GuardedRails(engine),

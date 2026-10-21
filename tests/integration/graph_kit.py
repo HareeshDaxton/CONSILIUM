@@ -13,7 +13,8 @@ from typing import Any
 
 from consilium.context import builder
 from consilium.context.facts import F
-from consilium.core.settings import Settings
+from consilium.core.settings import DEFAULT_CRITIC_PROMPT_VERSION, Settings
+from consilium.core.settings import DEFAULT_DIRECTOR_PROMPT_VERSION as DIRECTOR_V
 from consilium.graph.build import GraphRunner, NodeHook
 from consilium.graph.deps import MemoryImageStore, build_fake_deps
 from consilium.intake.extractor import estimate_confidence
@@ -135,8 +136,8 @@ def fake_llm(
         ("note_extractor", "v1", "default"): CannedResponse(
             (CannedCall(FakeMode.VALID, NOTE_PAYLOAD),)
         ),
-        ("director", "v1", "default"): CannedResponse((CannedCall(FakeMode.VALID, d),)),
-        ("critic", "v1", "default"): CannedResponse(
+        ("director", DIRECTOR_V, "default"): CannedResponse((CannedCall(FakeMode.VALID, d),)),
+        ("critic", DEFAULT_CRITIC_PROMPT_VERSION, "default"): CannedResponse(
             tuple(CannedCall(FakeMode.VALID, c) for c in critic)
         ),
     }

@@ -3,7 +3,11 @@
 import pytest
 from pydantic import ValidationError
 
-from consilium.core.settings import Settings
+from consilium.core.settings import (
+    DEFAULT_CRITIC_MODEL,
+    DEFAULT_MODEL_SNAPSHOT,
+    Settings,
+)
 
 REQUIRED_ENV = {
     "OPENAI_API_KEY": "sk-test-synthetic",
@@ -66,10 +70,20 @@ class TestCriticDiffersFromDirector:
 
     def test_same_model_same_temperature_rejected(self) -> None:
         with pytest.raises(ValidationError, match="critic must differ"):
-            make_settings(llm_temperature_critic=0.2, llm_temperature_director=0.2)
+            make_settings(
+                llm_model_critic=DEFAULT_MODEL_SNAPSHOT,
+                llm_temperature_critic=0.2,
+                llm_temperature_director=0.2,
+            )
 
     def test_same_model_different_temperature_ok(self) -> None:
-        s = make_settings(llm_temperature_director=0.2, llm_temperature_critic=0.0)
+        s = make_settings(
+            llm_model_critic=DEFAULT_MODEL_SNAPSHOT,
+            llm_temperature_director=0.2,
+            llm_temperature_critic=0.0,
+            llm_reasoning_effort_critic=None,
+            llm_verbosity_critic=None,
+        )
         assert s.llm_model_critic == s.llm_model_director
 
     def test_different_model_ok(self) -> None:
@@ -79,3 +93,27 @@ class TestCriticDiffersFromDirector:
             llm_temperature_director=0.2,
         )
         assert s.llm_model_critic == "gpt-4o-2024-08-06"
+
+    def test_default_critic_is_a_different_model_with_reasoning_options(self) -> None:
+        # gpt-6-luna is the recorded exception to the dated-snapshot rule
+        # (core/settings.py, doc/release_checklist.md); it only accepts T=1.
+        s = make_settings()
+        assert s.llm_model_critic == DEFAULT_CRITIC_MODEL
+        assert s.llm_model_critic != s.llm_model_director
+        assert s.llm_temperature_critic == 1.0
+        assert s.llm_model_options() == {
+            DEFAULT_CRITIC_MODEL: {"reasoning_effort": "medium", "verbosity": "low"}
+        }
+
+    def test_critic_options_only_reach_the_critic_model(self) -> None:
+        with pytest.raises(ValidationError, match="no other agent uses"):
+            make_settings(llm_model_critic=DEFAULT_MODEL_SNAPSHOT, llm_temperature_critic=0.0)
+
+    def test_non_reasoning_critic_sends_no_options(self) -> None:
+        s = make_settings(
+            llm_model_critic="gpt-4o-2024-08-06",
+            llm_temperature_critic=0.0,
+            llm_reasoning_effort_critic=None,
+            llm_verbosity_critic=None,
+        )
+        assert s.llm_model_options() == {}

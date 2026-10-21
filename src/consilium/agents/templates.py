@@ -97,7 +97,8 @@ def render_claims(draft: DirectorDraft) -> str:
     """Render a DirectorDraft for the Critic's prompt (Section 8.1, §13.2).
 
     Deterministic: claims in draft order, then disagreements, impression,
-    limitations. The Critic sees ONLY this rendering plus the fact sheet —
+    recommendations, limitations. The Critic sees ONLY this rendering plus the
+    fact sheet —
     never specialist prose or Director reasoning. Draft text is internal
     agent output quoted as data; the Critic prompt's untrusted-data rule
     covers note content echoed inside it.
@@ -126,6 +127,14 @@ def render_claims(draft: DirectorDraft) -> str:
     lines.append("[draft-impression]")
     lines.append(draft.impression)
     lines.append("[/draft-impression]")
+
+    # Without these the Critic flags workup the draft DOES recommend (VF/OCT,
+    # referral) as omitted — seen in eval-live-20261017T140231Z-d6ed738d.
+    lines.append("[draft-recommendations]")
+    for rec in draft.recommendations:
+        lines.append(f"- {rec.text}")
+        lines.append(f"  triggered_by: {', '.join(rec.triggered_by)}")
+    lines.append("[/draft-recommendations]")
 
     lines.append("[draft-limitations]")
     lines += [f"- {item}" for item in draft.limitations]

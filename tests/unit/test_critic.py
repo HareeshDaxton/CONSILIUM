@@ -18,6 +18,7 @@ from consilium.agents.critic_agent import Critic
 from consilium.agents.templates import render_claims, render_facts
 from consilium.context.facts import F
 from consilium.core.errors import AgentFailure, ValidationFailure
+from consilium.core.settings import DEFAULT_CRITIC_PROMPT_VERSION as CRITIC_V
 from consilium.core.settings import Settings
 from consilium.llm.client_fake import CannedCall, CannedResponse, FakeLLMClient, FakeMode
 from consilium.llm.prompt_loader import PromptLoader
@@ -130,7 +131,7 @@ def _reject_payload(*, claim_id: str | None = "c1", round_: int = 0) -> dict[str
 
 def _critic(settings: Settings, llm: FakeLLMClient) -> Critic:
     return Critic(
-        prompt=PromptLoader().load("critic", "v1"),
+        prompt=PromptLoader().load("critic", CRITIC_V),
         llm=llm,
         model=settings.llm_model_critic,
         temperature=settings.llm_temperature_critic,
@@ -138,7 +139,7 @@ def _critic(settings: Settings, llm: FakeLLMClient) -> Critic:
 
 
 def _fake(payload: dict[str, Any]) -> FakeLLMClient:
-    return FakeLLMClient.valid(payload, agent="critic", prompt_version="v1")
+    return FakeLLMClient.valid(payload, agent="critic", prompt_version=CRITIC_V)
 
 
 # --- (a) prompt rendering ---------------------------------------------------
@@ -147,7 +148,7 @@ def _fake(payload: dict[str, Any]) -> FakeLLMClient:
 def test_critic_prompt_renders_with_fixture_inputs() -> None:
     rendered = (
         PromptLoader()
-        .load("critic", "v1")
+        .load("critic", CRITIC_V)
         .render(
             {
                 "facts_block": render_facts(_global_ctx()),
@@ -168,6 +169,10 @@ def test_critic_prompt_renders_with_fixture_inputs() -> None:
     assert "position[optometrist]: Routine follow-up is sufficient." in rendered
     assert "Findings raise suspicion of glaucoma" in rendered
     assert "Screening support only; does not diagnose." in rendered
+    # recommendations are shown, so the critic cannot call recommended workup "omitted"
+    assert "[draft-recommendations]" in rendered
+    assert "- Consider visual field testing." in rendered
+    assert f"  triggered_by: {F.P_TIER}" in rendered
 
 
 # --- (b) approve path; round stamped by code --------------------------------
@@ -179,7 +184,7 @@ async def test_approve_path_stamps_round_from_code_not_model(
     llm = _fake(_approve_payload(round_=7))
     resp = await _critic(settings, llm).run(_draft(), _global_ctx(), 1)
     verdict = resp.data
-    assert resp.prompt_version == "v1"
+    assert resp.prompt_version == CRITIC_V
     assert verdict.approved is True
     assert verdict.issues == ()
     assert verdict.round == 1  # model said 7; code wins
@@ -225,7 +230,7 @@ async def test_reject_path_issues_pass_through_with_raised_by(
 async def test_unknown_claim_id_is_repaired_and_hint_names_the_id(
     settings: Settings,
 ) -> None:
-    key = ("critic", "v1", "default")
+    key = ("critic", CRITIC_V, "default")
     llm = FakeLLMClient(
         {
             key: CannedResponse(
@@ -271,7 +276,7 @@ async def test_unknown_evidence_fact_id_fails_closed(settings: Settings) -> None
 
 async def test_refusal_fails_closed_never_retried(settings: Settings) -> None:
     llm = FakeLLMClient(
-        {("critic", "v1", "default"): CannedResponse((CannedCall(FakeMode.REFUSAL),))}
+        {("critic", CRITIC_V, "default"): CannedResponse((CannedCall(FakeMode.REFUSAL),))}
     )
     with pytest.raises(AgentFailure):
         await _critic(settings, llm).run(_draft(), _global_ctx(), 0)
@@ -296,6 +301,6 @@ def test_settings_rejects_identical_critic_and_director_configuration() -> None:
 
 
 def test_default_settings_critic_differs_from_director(settings: Settings) -> None:
-    assert settings.llm_model_critic == settings.llm_model_director
-    assert settings.llm_temperature_critic == 0.0
+    assert settings.llm_model_critic != settings.llm_model_director
+    assert settings.llm_temperature_critic == 1.0  # gpt-6-luna accepts only T=1
     assert settings.llm_temperature_director == 0.2

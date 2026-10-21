@@ -51,7 +51,12 @@ from consilium.context.builder import build
 from consilium.context.router import RoleRouting, RoutingConfig, load_routing_config, route
 from consilium.core.clock import Clock, SystemClock
 from consilium.core.errors import AppError
-from consilium.core.settings import DEFAULT_MODEL_SNAPSHOT, Settings
+from consilium.core.settings import (
+    DEFAULT_CRITIC_PROMPT_VERSION,
+    DEFAULT_DIRECTOR_PROMPT_VERSION,
+    DEFAULT_MODEL_SNAPSHOT,
+    Settings,
+)
 from consilium.eval.datasets import (
     SMOKE_MANIFEST_PATH,
     EvalCase,
@@ -77,8 +82,8 @@ T = TypeVar("T", bound=BaseModel)
 REPO_ROOT = Path(__file__).resolve().parents[3]
 CONFIGS_DIR = REPO_ROOT / "configs"
 DEFAULT_RUN_ROOT = REPO_ROOT / "data" / "eval_runs"
-DIRECTOR_PROMPT_VERSION = "v1"
-CRITIC_PROMPT_VERSION = "v1"
+DIRECTOR_PROMPT_VERSION = DEFAULT_DIRECTOR_PROMPT_VERSION  # single pin: core/settings.py
+CRITIC_PROMPT_VERSION = DEFAULT_CRITIC_PROMPT_VERSION  # single pin: core/settings.py
 SINGLE_AGENT_PROMPT_VERSION = "v1"
 DEFAULT_SAMPLES = 3  # §19.3: ≥3 samples per case for stochastic LLM paths
 DEFAULT_SEED = 13
@@ -111,6 +116,12 @@ ALL_STAGES: tuple[Stage, ...] = tuple(Stage)
 class AgentSetting:
     model: str
     temperature: float
+    options: str = ""  # provider options, e.g. "reasoning_effort=medium,verbosity=low"
+
+    def label(self) -> str:
+        """``<model>@T=<t>`` (+ ``[options]``) as recorded in run provenance."""
+        base = f"{self.model}@T={self.temperature}"
+        return f"{base}[{self.options}]" if self.options else base
 
 
 @dataclass(frozen=True)
@@ -124,6 +135,7 @@ class EvalModels:
     critic_max_rounds: int = 3
     timeout_s: float = 60.0
     token_budget: int = 100_000
+    critic_max_output_tokens: int = 3000
 
     @classmethod
     def defaults(cls) -> EvalModels:
@@ -143,11 +155,21 @@ class EvalModels:
                 settings.llm_model_specialist, settings.llm_temperature_specialist
             ),
             director=director,
-            critic=AgentSetting(settings.llm_model_critic, settings.llm_temperature_critic),
+            critic=AgentSetting(
+                settings.llm_model_critic,
+                settings.llm_temperature_critic,
+                ",".join(
+                    f"{k}={v}"
+                    for k, v in settings.llm_model_options()
+                    .get(settings.llm_model_critic, {})
+                    .items()
+                ),
+            ),
             single_agent=director,
             critic_max_rounds=settings.critic_max_rounds,
             timeout_s=settings.llm_timeout_s,
             token_budget=settings.llm_case_token_budget,
+            critic_max_output_tokens=settings.llm_max_output_tokens_critic,
         )
 
 
@@ -503,6 +525,7 @@ class StageRunner:
             llm=llm,
             model=m.critic.model,
             temperature=m.critic.temperature,
+            max_output_tokens=m.critic_max_output_tokens,
             timeout_s=m.timeout_s,
             budget=budget,
         )
@@ -560,7 +583,7 @@ def config_hashes(configs_dir: Path = CONFIGS_DIR) -> dict[str, str]:
 
 
 def _setting(s: AgentSetting) -> str:
-    return f"{s.model}@T={s.temperature}"
+    return s.label()
 
 
 @dataclass(frozen=True)

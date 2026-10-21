@@ -156,3 +156,32 @@ async def test_bad_request_is_rejected_not_retried() -> None:
     with pytest.raises(AgentFailure) as err:
         await _call(_status_error(400))
     assert err.value.reason == "LLM_REQUEST_REJECTED"
+
+
+async def test_reasoning_options_are_sent_only_for_their_model() -> None:
+    """The critic's reasoning_effort/verbosity reach the critic model only;
+    every other agent's request is unchanged (options omitted)."""
+    verdict = json.dumps({"approved": True, "issues": [], "round": 0})
+    client = OpenAILLMClient(
+        "sk-test-synthetic",
+        base_url="https://api.openai.invalid/v1",
+        model_options={"gpt-6-luna": {"reasoning_effort": "medium", "verbosity": "low"}},
+    )
+    sent: dict[str, dict[str, Any]] = {}
+    for model in ("gpt-6-luna", "gpt-4o-mini-2024-07-18"):
+        stub = _Stub(_completion(verdict))
+        client._client.chat.completions.create = stub  # type: ignore[method-assign]
+        await client.generate(
+            [ChatMessage(role="user", content="x")],
+            CriticVerdict,
+            model=model,
+            temperature=1.0,
+            max_output_tokens=100,
+            timeout_s=5.0,
+            tags={"agent": "critic"},
+        )
+        sent[model] = stub.kwargs
+    assert sent["gpt-6-luna"]["reasoning_effort"] == "medium"
+    assert sent["gpt-6-luna"]["verbosity"] == "low"
+    assert sent["gpt-4o-mini-2024-07-18"]["reasoning_effort"] is openai.omit
+    assert sent["gpt-4o-mini-2024-07-18"]["verbosity"] is openai.omit

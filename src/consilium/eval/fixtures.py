@@ -38,6 +38,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from consilium.context.facts import F
+from consilium.core.settings import DEFAULT_CRITIC_PROMPT_VERSION, DEFAULT_DIRECTOR_PROMPT_VERSION
 from consilium.eval.datasets import SMOKE_MANIFEST_PATH, CaseManifest, EvalCase, manifest_bytes
 from consilium.llm.client_fake import CannedCall, CannedResponse, FakeLLMClient, FakeMode
 from consilium.schemas.agents import (
@@ -576,10 +577,10 @@ def synthetic_llm(
         )
         for role, report in reports.items()
     }
-    keys[("director", prompt_version, "default")] = CannedResponse(
+    keys[("director", DEFAULT_DIRECTOR_PROMPT_VERSION, "default")] = CannedResponse(
         (_valid(first.model_dump(mode="json")), _valid(clean.model_dump(mode="json")))
     )
-    keys[("critic", prompt_version, "default")] = CannedResponse((_valid(_APPROVE),))
+    keys[("critic", DEFAULT_CRITIC_PROMPT_VERSION, "default")] = CannedResponse((_valid(_APPROVE),))
     return FakeLLMClient(keys)
 
 

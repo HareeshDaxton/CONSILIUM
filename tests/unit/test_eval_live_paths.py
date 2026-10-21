@@ -14,6 +14,8 @@ from pathlib import Path
 import pytest
 from pydantic import SecretStr
 
+from consilium.core.settings import DEFAULT_CRITIC_PROMPT_VERSION as CRITIC_V
+from consilium.core.settings import DEFAULT_DIRECTOR_PROMPT_VERSION as DIRECTOR_V
 from consilium.core.settings import Settings
 from consilium.eval import ablation as ab
 from consilium.eval import fault_injection as fi
@@ -31,7 +33,14 @@ PIN = load_models_config().endpoint.pinned_revision
 def _refusing() -> FakeLLMClient:
     agents = [r.value for r in Role] + ["director", "critic", "single_agent", "judge"]
     return FakeLLMClient(
-        {(a, "v1", "default"): CannedResponse((CannedCall(FakeMode.REFUSAL),)) for a in agents}
+        {
+            (
+                a,
+                {"critic": CRITIC_V, "director": DIRECTOR_V}.get(a, "v1"),
+                "default",
+            ): CannedResponse((CannedCall(FakeMode.REFUSAL),))
+            for a in agents
+        }
     )
 
 

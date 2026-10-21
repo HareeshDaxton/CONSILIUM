@@ -13,6 +13,23 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Dated snapshots, never floating aliases (AGENTS.md §6 / SKILLS.md llm-client-and-fakes).
 DEFAULT_MODEL_SNAPSHOT = "gpt-4o-mini-2024-07-18"
+# Released critic prompt (prompts/critic/vN.md). Changing it is a prompt-change
+# (SKILLS.md §5): new version file + eval + fault-injection re-run (I-9).
+DEFAULT_CRITIC_PROMPT_VERSION = "v4"
+# Released director prompt. v2 (2026-10-20): reads the note before writing
+# "no visual-field / OCT data", always states laterality, no rounding-only
+# disagreements, exact disclaimer text.
+DEFAULT_DIRECTOR_PROMPT_VERSION = "v2"
+# The critic runs on a DIFFERENT model than the director (AGENTS.md §6, §13.2).
+# ACCEPTED EXCEPTION to the dated-snapshot rule (owner: HareeshDaxton,
+# 2026-10-20; doc/release_checklist.md): "gpt-6-luna" has no dated snapshot,
+# so its behaviour can change without a code change — re-run the
+# critic-fault-injection skill after any provider-side model update.
+# It is a reasoning model: temperature is fixed at 1 by the provider, and
+# reasoning effort / verbosity are set below. Owner's decision (2026-10-20):
+# the critic uses gpt-6-luna only; every other agent uses gpt-4o-mini.
+# Changing the critic model requires a fault-injection re-run.
+DEFAULT_CRITIC_MODEL = "gpt-6-luna"
 
 
 class Settings(BaseSettings):
@@ -29,14 +46,22 @@ class Settings(BaseSettings):
     openai_api_key: SecretStr  # required secret — no default
     llm_model_specialist: str = DEFAULT_MODEL_SNAPSHOT
     llm_model_director: str = DEFAULT_MODEL_SNAPSHOT
-    llm_model_critic: str = DEFAULT_MODEL_SNAPSHOT
+    llm_model_critic: str = DEFAULT_CRITIC_MODEL
     llm_temperature_specialist: float = Field(default=0.2, ge=0.0, le=2.0)
     llm_temperature_director: float = Field(default=0.2, ge=0.0, le=2.0)
-    llm_temperature_critic: float = Field(default=0.0, ge=0.0, le=2.0)
+    # 1.0: the only value gpt-6-luna accepts (use 0.0 with a non-reasoning critic)
+    llm_temperature_critic: float = Field(default=1.0, ge=0.0, le=2.0)
+    # Reasoning-model options for the critic; None = not sent (non-reasoning models).
+    llm_reasoning_effort_critic: Literal["none", "low", "medium", "high", "xhigh"] | None = "medium"
+    llm_verbosity_critic: Literal["low", "medium", "high"] | None = "low"
+    # Reasoning tokens count against this cap, so a reasoning critic needs headroom.
+    llm_max_output_tokens_critic: int = Field(default=12_000, gt=0)
     llm_timeout_s: float = Field(default=60.0, gt=0)
     llm_max_retries: int = Field(default=3, ge=0)
     llm_case_token_budget: int = Field(default=100_000, gt=0)
     critic_max_rounds: int = Field(default=3, ge=1)  # AGENTS.md §4: bounded audit loop
+    critic_prompt_version: str = Field(default=DEFAULT_CRITIC_PROMPT_VERSION, pattern=r"^v\d+$")
+    director_prompt_version: str = Field(default=DEFAULT_DIRECTOR_PROMPT_VERSION, pattern=r"^v\d+$")
 
     # ----- Persistence / storage -----
     database_url: str  # required — no default
@@ -137,3 +162,24 @@ class Settings(BaseSettings):
                 "(AGENTS.md §6: self-critique by the same configuration is forbidden)"
             )
         return self
+
+    @model_validator(mode="after")
+    def _check_critic_options_are_critic_only(self) -> Self:
+        """Model options are keyed by model ID, so a critic-only option must not
+        silently apply to the director or specialists sharing that model."""
+        shared = self.llm_model_critic in (self.llm_model_director, self.llm_model_specialist)
+        if shared and self.llm_model_options():
+            raise ValueError(
+                "LLM_REASONING_EFFORT_CRITIC / LLM_VERBOSITY_CRITIC need a critic model "
+                "that no other agent uses (unset them for a shared model)"
+            )
+        return self
+
+    def llm_model_options(self) -> dict[str, dict[str, str]]:
+        """Extra provider options per model ID (only the critic's, when set)."""
+        options: dict[str, str] = {}
+        if self.llm_reasoning_effort_critic is not None:
+            options["reasoning_effort"] = self.llm_reasoning_effort_critic
+        if self.llm_verbosity_critic is not None:
+            options["verbosity"] = self.llm_verbosity_critic
+        return {self.llm_model_critic: options} if options else {}

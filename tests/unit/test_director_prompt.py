@@ -12,6 +12,7 @@ from jinja2.exceptions import UndefinedError
 
 from consilium.agents.templates import render_facts, render_subreports
 from consilium.context.facts import F
+from consilium.core.settings import DEFAULT_DIRECTOR_PROMPT_VERSION as DIRECTOR_V
 from consilium.llm.prompt_loader import PromptLoader
 from consilium.schemas.agents import Finding, Recommendation, SubReport
 from consilium.schemas.context import Fact, GlobalContext
@@ -84,7 +85,7 @@ def _render(**overrides: str) -> str:
         "revision_block": "",
         **overrides,
     }
-    return PromptLoader().load("director", "v1").render(context)
+    return PromptLoader().load("director", DIRECTOR_V).render(context)
 
 
 def test_director_prompt_renders_with_fixture_inputs() -> None:
@@ -117,7 +118,7 @@ def test_director_prompt_forbids_diagnosis_doses_and_laundering() -> None:
 
 def test_director_prompt_missing_variable_fails_loudly() -> None:
     with pytest.raises(UndefinedError):
-        PromptLoader().load("director", "v1").render({})
+        PromptLoader().load("director", DIRECTOR_V).render({})
 
 
 def test_revision_block_is_rendered_when_supplied() -> None:
