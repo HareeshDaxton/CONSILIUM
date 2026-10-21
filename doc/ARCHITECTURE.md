@@ -14,7 +14,7 @@ CONSILIUM is a **clinical decision-support pipeline for glaucoma screening** bui
 
 - **Vision models** (SwinV2 classifier + SegFormer segmenter, fine-tuned, served remotely on a private Hugging Face Inference Endpoint)
 - **A deterministic context-routing layer** that splits the global CAD context into role-specific sub-contexts to prevent multi-agent "consensus collapse"
-- **Five LLM agents** (3 isolated specialists → Director → independent Adversarial Critic, default model GPT-4o-mini) that synthesize a structured draft report
+- **Five LLM agents** (3 isolated specialists → Director → independent Adversarial Critic; GPT-4o-mini for all but the Critic, which runs on `gpt-6-luna`) that synthesize a structured draft report
 - **Two-layer audit** (deterministic verifier first, LLM critic second, bounded loop) plus NeMo Guardrails and mandatory human clinician review
 
 Every report that leaves the system is clinician-approved, carries clinician attribution, and uses screening-support language.
@@ -119,7 +119,7 @@ API and worker share the same container image; the compose file runs both roles.
 | API | FastAPI + Uvicorn (async) | RFC 7807 errors |
 | Frontend | React 18 + Vite + TypeScript | Mask canvas overlay; edit-diff form |
 | Orchestration | LangGraph (thin wiring only) | State persisted to Postgres per node, not LangGraph checkpoints |
-| LLM | OpenAI SDK, structured outputs bound to Pydantic | Default `gpt-4o-mini` (dated snapshots, config); Critic on different model/setting |
+| LLM | OpenAI SDK, structured outputs bound to Pydantic | Default `gpt-4o-mini` (dated snapshots, config); Critic on a different model: `gpt-6-luna` (accepted pinning exception, `doc/release_checklist.md`) |
 | Vision serving | HF Inference Endpoints, private, custom handler | Returns raw logits + masks only; revision pinned |
 | Vision training | PyTorch + transformers (in `training/` only) | REFUGE primary; MLflow + DVC |
 | Validation | Pydantic v2 strict everywhere | extra="forbid", frozen |
@@ -156,8 +156,8 @@ consilium/
 │   ├── ophthalmologist/v1.md
 │   ├── optometrist/v1.md
 │   ├── pharmacist/v1.md
-│   ├── director/v1.md
-│   └── critic/v1.md
+│   ├── director/v1.md   v2.md   # v2 released
+│   └── critic/v1.md … v4.md      # v4 released (pins in core/settings.py)
 ├── deploy/vision_endpoint/
 │   ├── handler.py                # HF custom handler: preprocess + both models + RLE encode
 │   ├── requirements.txt
@@ -534,7 +534,8 @@ class LLMClient(Protocol):
 - Schema-validation failure → bounded repair retry (validation error appended) — **not** unbounded.
 - Refusal/content-policy → `AgentFailure` (surfaced, never retried blindly, never swallowed into empty output).
 - Per-case budget: `LLM_CASE_TOKEN_BUDGET` enforced in `budget.py`; exceeding raises (no silent truncation).
-- Model IDs must be dated snapshots from config (e.g. `gpt-4o-mini-2024-07-18`), never floating aliases.
+- Model IDs must be dated snapshots from config (e.g. `gpt-4o-mini-2024-07-18`), never floating aliases — except the recorded critic exception `gpt-6-luna`.
+- Per-model provider options (`reasoning_effort`, `verbosity`) come from `Settings.llm_model_options()` and are sent only for the model they belong to (the critic's).
 
 **`client_fake.py`** — `FakeLLMClient` keyed by `(agent, prompt_version, fixture_id)`; modes: `valid | malformed | schema_violating | timeout | refusal`. Shared contract tests run against both fake and live so they cannot drift.
 
@@ -570,7 +571,7 @@ class BaseSpecialist:
 - `revise(draft, issues, round) -> DirectorDraft`: receives previous draft + the issue list only (not the critic's reasoning); must address each issue ID or explicitly justify non-change; `revision += 1`.
 - Wording contract (I-12) enforced again downstream by the lexicon check.
 
-**Critic agent wrapper** (`critic_agent.py`) — thin: renders critic prompt with claims + GlobalContext facts (not specialist reasoning), calls `llm` with the **critic model/setting** (`LLM_MODEL_CRITIC` — different snapshot or at minimum temperature 0 vs the director's generation temperature), returns `CriticVerdict`.
+**Critic agent wrapper** (`critic_agent.py`) — thin: renders critic prompt with claims + GlobalContext facts (not specialist reasoning), calls `llm` with the **critic model/setting** (`LLM_MODEL_CRITIC` — currently `gpt-6-luna` at temperature 1, the only value it accepts, with `LLM_REASONING_EFFORT_CRITIC=medium` and `LLM_VERBOSITY_CRITIC=low`; prompt `CRITIC_PROMPT_VERSION`, v4), returns `CriticVerdict`.
 
 ### 5.9 Verification (`verify/`)
 
@@ -782,7 +783,9 @@ All responses JSON unless noted; errors RFC 7807 `application/problem+json`.
 | Env var | Purpose |
 |---|---|
 | `OPENAI_API_KEY` | LLM provider |
-| `LLM_MODEL_SPECIALIST` / `LLM_MODEL_DIRECTOR` / `LLM_MODEL_CRITIC` | dated snapshot IDs (default `gpt-4o-mini-…` family; critic **must differ** from director) |
+| `LLM_MODEL_SPECIALIST` / `LLM_MODEL_DIRECTOR` / `LLM_MODEL_CRITIC` | dated snapshot IDs (default `gpt-4o-mini-2024-07-18`; critic `gpt-6-luna`, the recorded exception; critic **must differ** from director) |
+| `LLM_REASONING_EFFORT_CRITIC` / `LLM_VERBOSITY_CRITIC` / `LLM_MAX_OUTPUT_TOKENS_CRITIC` | reasoning-model options for the critic only |
+| `CRITIC_PROMPT_VERSION` / `DIRECTOR_PROMPT_VERSION` | released prompt pins (v4 / v2) |
 | `LLM_TIMEOUT_S` `LLM_MAX_RETRIES` `LLM_CASE_TOKEN_BUDGET` | client behavior |
 | `CRITIC_MAX_ROUNDS` | default 3 |
 | `DATABASE_URL` | postgres |

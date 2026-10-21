@@ -147,8 +147,8 @@ consilium/
 │   ├── ophthalmologist/v1.md
 │   ├── optometrist/v1.md
 │   ├── pharmacist/v1.md
-│   ├── director/v1.md
-│   └── critic/v1.md
+│   ├── director/v1.md            # v2 released (prompt pins: core/settings.py)
+│   └── critic/v1.md              # v4 released; v1-v3 kept (I-9)
 ├── deploy/
 │   └── vision_endpoint/        # HF Inference Endpoint custom handler (preprocessing + model here),
 │                               # revision-pinned; NOT imported by src/ (deployed artifact only)
@@ -194,7 +194,7 @@ Hard boundaries:
 | Language / env | Python ≥3.11, `uv` | Lockfile committed. |
 | Validation | Pydantic v2, `strict=True`, `extra="forbid"` on all LLM-facing models | |
 | Orchestration | LangGraph | Thin wiring only (§4). Nodes are plain async functions; state persisted to Postgres after every node. |
-| LLM | OpenAI via official SDK, structured outputs bound to Pydantic models | **Default model GPT-4o-mini for all five agents.** Model IDs from config/env, pinned to dated snapshots, never hard-coded. Critic runs on a **different model or at minimum a different temperature/setting** than the Director — self-critique by the same configuration is weak evidence. |
+| LLM | OpenAI via official SDK, structured outputs bound to Pydantic models | **Default model GPT-4o-mini for the note extractor, the three specialists and the Director; the Critic runs on `gpt-6-luna`** (owner decision 2026-10-20; it has no dated snapshot — an accepted exception recorded in `doc/release_checklist.md`, re-run critic fault injection after any provider-side model update). Model IDs from config/env, pinned to dated snapshots (except that recorded exception), never hard-coded. Critic runs on a **different model or at minimum a different temperature/setting** than the Director — self-critique by the same configuration is weak evidence. |
 | Vision serving | Hugging Face Inference Endpoints (private) | SwinV2 + SegFormer behind one custom handler. Returns **raw logits + masks only**. ~$0.50/hr always-on (~$360/mo); scale-to-zero is cheaper but adds cold-start latency the pipeline must tolerate (§4). Images leave our infra — endpoint must be private, data terms reviewed, region checked (I-14, §26). |
 | Vision consumption | `VisionClient` protocol (HTTP impl + `FakeVisionClient`) | Mirrors the `LLMClient` pattern: timeouts, bounded retries with backoff + jitter, revision pin check per response. Backend owns calibration, tiers, CDR, QC. |
 | Vision training | PyTorch + HF `transformers`, in `training/` | Fine-tune from public pretrained weights. REFUGE primary dev/eval set; see §8.5. |
@@ -639,7 +639,7 @@ The paper's critic is an LLM. In production we do not trust an LLM to be the *on
 ### 13.2 LLM Critic (`verify/critic.py`) — semantic check
 - Input: the draft's claims + the `GlobalContext` facts. Not the specialists' reasoning (keeps it independent of the story the draft tells itself).
 - Task: for each claim, is it entailed by the cited evidence? Does the impression assert anything no claim supports? Is anything in the facts material but absent?
-- Output: `CriticVerdict` with per-claim issues. Runs on a **different model or at minimum a different temperature/setting** from the Director (default: GPT-4o-mini at temperature 0 vs the Director's configured generation temperature; a different pinned snapshot is better and is a one-line config change). Self-critique by the same configuration is weak evidence.
+- Output: `CriticVerdict` with per-claim issues. Runs on a **different model or at minimum a different temperature/setting** from the Director (current: `gpt-6-luna` at temperature 1 with reasoning effort medium / verbosity low vs the Director's GPT-4o-mini — a different model; it is the recorded exception to snapshot pinning, see §6). Self-critique by the same configuration is weak evidence.
 - The Critic checks claims against **both** the CAD metrics (calibrated p, CDR, quality/QC flags) **and** the clinical-note facts (IOP, meds, intolerances, comorbidities) — with note free text treated as untrusted data.
 - Known limit: an LLM critic can approve a wrong statement. That is why the deterministic layer exists, why it runs first, and why a human is final (I-4).
 

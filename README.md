@@ -41,8 +41,17 @@ URL and a token. He sends you those two lines.
    ```
 
 3. Open http://localhost:5173 and sign in with Google. Then go to **New screening**:
-   upload an image, add an optional note, and click **Generate report**. Watch the progress,
-   read the report, and use **Download PDF / Word**.
+   upload an image, **choose the eye (left/right)**, add an optional note, and click
+   **Generate report**. Watch the progress, read the report, and use **Download PDF / Word**.
+
+A report that the checks could not clear arrives as **UNVERIFIED** with the problem
+highlighted; a clinician fixes it and signs. The person who submitted a case cannot sign it,
+so add a second Google account to `GOOGLE_CLINICIANS` to sign your own submissions.
+
+If Windows App Control blocks SQLAlchemy's compiled files (`DLL load failed … Application
+Control policy`), allow the project's `.venv` in Windows Security, or rename the blocked
+`*.pyd` files under `.venv/Lib/site-packages/sqlalchemy` so its pure-Python modules load
+(`uv sync` restores them).
 
 Offline demo without Deva or OpenAI (canned AI, fake vision, seeded cases):
 `uv run python scripts/dev_ui_stack.py --reset`.
@@ -63,6 +72,17 @@ Interim third-party weights (Apache-2.0, fine-tuned on REFUGE), pinned in
 on REFUGE, REFUGE cannot serve as held-out evaluation data for them. Probability
 calibration is not fitted yet, and the report says so. No performance figures are claimed
 anywhere until they come from stored evaluation runs (Phase 13).
+
+Language models (OpenAI), set in `core/settings.py` / `.env`:
+
+| Agent | Model | Prompt |
+|---|---|---|
+| Note extractor, 3 specialists, Director | `gpt-4o-mini-2024-07-18` | Director `v2`, others `v1` |
+| Critic | `gpt-6-luna` (temperature 1, reasoning effort medium, verbosity low) | `v4` |
+
+`gpt-6-luna` has no dated snapshot. It is an owner-accepted exception to the pinning rule
+(see [doc/release_checklist.md](doc/release_checklist.md)): re-run critic fault injection
+after any provider-side model update.
 
 ## Evaluation (Phase 13)
 
@@ -143,7 +163,10 @@ Full report: `doc/eval_runs/eval-live-20261017T140231Z-d6ed738d/report.md` (rege
 
 `docker compose --profile observability up -d` adds Prometheus (http://localhost:9090) and
 Grafana (http://localhost:3001, dashboard "CONSILIUM overview"). Prometheus scrapes the API
-(`:8000/metrics`) and the worker (`:9100/metrics`, `WORKER_METRICS_PORT`). Set
+(`:8000/metrics`) and the worker (`:9100/metrics`, `WORKER_METRICS_PORT`). When the app runs
+on this laptop with `scripts/run_app.py`, start only the two dashboard containers
+(`docker compose --profile observability up -d --no-deps prometheus grafana`) and run the app
+with `--host 0.0.0.0` so Prometheus can reach it (job `consilium-local`). Set
 `OTEL_ENDPOINT` to export traces (one span per graph node, LLM call and vision call), and
 set `LANGFUSE_HOST` / `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` to send LLM generation
 metadata to a self-hosted Langfuse. Spans and Langfuse events carry identities and counts
@@ -156,7 +179,7 @@ only, never prompts, notes, images or model output. The alert rules are in
 | `VisionRevisionMismatch` | any mismatch in 5 min | The endpoint is serving a different model than the one CONSILIUM was tuned for. Stop and redeploy the pinned weights, or bump the pin deliberately together with thresholds and calibration (`vision-endpoint` skill). |
 | `VisionColdStartSpike` | more than 0.3 retries per successful vision call for 15 min | Switch the endpoint to always-on, or raise `VISION_TIMEOUT_S`. This is a cost decision, not a code change. |
 | `CriticRoundOneApprovalNear100` | more than 98% of drafts approved in round 1 over 6 h (min 20) | Possible critic degradation. Run `make eval-live` and check the fault-injection table (`critic-fault-injection` skill) before trusting new approvals. |
-| `NeedsAttentionDrift` | more than 25% of drafted cases end NEEDS_ATTENTION over 6 h | Triage a sample with the `bad-report-triage` skill. The Phase 13 live run already shows critic over-rejection (S4 UNVERIFIED 1.0), so this alert is expected to fire until critic prompt v2 lands. |
+| `NeedsAttentionDrift` | more than 25% of drafted cases end NEEDS_ATTENTION over 6 h | Triage a sample with the `bad-report-triage` skill. Critic over-rejection (S4 UNVERIFIED 1.0 in the Phase 13 run) was addressed on 2026-10-21 (critic v4 + Director v2); remaining UNVERIFIED reports mostly carry real Director errors. |
 | `ReviewBacklog` | more than 20 cases awaiting review (24 h arrivals minus decisions) for 2 h | Staffing, not a system change. Nothing is ever auto-approved. |
 | `LLMErrorSpike` | more than 5% of LLM calls failing for 10 min | Check the provider status, `OPENAI_API_KEY` and quota, and the pinned snapshot's availability. Cases fail closed. |
 

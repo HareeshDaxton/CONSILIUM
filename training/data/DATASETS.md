@@ -90,3 +90,22 @@ so the commands above work as-is.
 Until the real metadata exists, `training/data/examples/` holds a SYNTHETIC
 metadata + split manifest (IDs like `synthetic-p01`) used by tests and docs
 only — never for training.
+
+## Local pipeline-test set (added 2026-10-20, owner-supplied)
+
+- **Images:** `data/image_of_glucoma/Glucoma_image/` (39 files `g0001 (1).jpg` …)
+  and `data/image_of_glucoma/Non_Glucoma_image/` (358 files `n0001 (1).jpg` …),
+  2124x2056 JPEG. The names and counts match the REFUGE training split, so
+  treat them as REFUGE images. The source and terms are still unrecorded
+  (see the REFUGE entry above).
+- **Notes:** `data/Medical_notes_for_glucoma/.../positive_notes.json` and
+  `negitive_notes.json`, about 70 synthetic clinician notes each (label,
+  laterality OD/OS/OU, free text). The file is a comma-separated list
+  without the outer `[ ]`. OU maps to laterality UNKNOWN.
+- **Allowed use:** end-to-end pipeline and report-writing tests (critic and
+  Director work in Kimi.md Section 14.7), and the 79-photo blur/exposure
+  measurement behind the 2026-10-20 quality-gate change.
+- **NOT allowed:** vision accuracy, calibration fitting or any held-out
+  evaluation of the current weights. The interim pamixsun models were
+  fine-tuned on REFUGE (AGENTS.md §8.5).
+- `data/` is gitignored; nothing here is committed.

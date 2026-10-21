@@ -4324,6 +4324,25 @@ running) — they push notes through input_rail/output_rail end to end.
 `uv run pytest tests/integration tests/e2e -q`; when available, test real
 clinic note formats (synthetic values) and send misses.
 
+### Section 14.6b — Housekeeping: env files, Makefile migrate, local Prometheus ✅ DONE (user-directed)
+
+**Done (2026-10-19/20):** `.env.example` cleaned (duplicate `OPENAI_API_KEY`
+and the unread `SWINV2_AND_SEGFORMER_LINK` / `VISION_MODE` removed, the real
+Google client ID blanked, the inline comment taken off `RAILS_ENGINE`,
+sections regrouped); the local `.env` rebuilt with the same values (never
+committed). `Makefile` `migrate` now runs `uv run alembic upgrade head` (it
+still said "not implemented until Phase 9"). `deploy/observability/
+prometheus.yml` gains job `consilium-local` (`host.docker.internal:8000`) so
+Prometheus can scrape the app run with `scripts/run_app.py` (API + worker in
+one process); `docker-compose.yml` documents `--profile observability up -d
+--no-deps prometheus grafana`, and the app runs with `--host 0.0.0.0`.
+AGENTS.md I-4 text corruption ("fin0000ithout") fixed.
+**Verified:** Settings load from both env files; settings tests 11/11;
+`alembic heads` resolves `0001_initial`; Prometheus target `consilium-local`
+UP (user screenshot); compose config valid; observability tests 5/5.
+**Commits:** 2699748, 836025e, 5890051 (all pushed).
+**MANUAL STEPS:** none beyond the README run steps.
+
 ### Section 14.7 — Critic over-rejection fix, real-case run, rule fixes ✅ DONE (user-directed; confirmation run pending)
 
 **Goal (user, 2026-10-20/21):** with Deva's GPU server online, fix the critic
