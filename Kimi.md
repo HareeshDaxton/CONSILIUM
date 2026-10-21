@@ -11,7 +11,7 @@ anything only the user can do (account registrations, dataset downloads, API
 keys into `.env`, tool installs, OS policy changes). If the list is empty,
 the section needed no manual work.
 
-Current position: **PHASE 14 COMPLETE (14.1 observability + alerts + runbook; 14.2 threat model, CI security scans, erasure job, PHI sweep; 14.3 load test + DR rehearsal; 14.4 release checklist + model card + INTAKE_FROZEN rollback switch; 14.5 UI redesign; 14.6 Indian-format PHI patterns). V1 = supervised-pilot ready; real-patient release blocked on OPEN human items in doc/release_checklist.md (critic over-rejection, provider terms, regulatory, CLINICAL-REVIEW sign-offs).**
+Current position: **PHASE 14 COMPLETE (14.1 observability + alerts + runbook; 14.2 threat model, CI security scans, erasure job, PHI sweep; 14.3 load test + DR rehearsal; 14.4 release checklist + model card + INTAKE_FROZEN rollback switch; 14.5 UI redesign; 14.6 Indian-format PHI patterns; 14.7 critic fix — gpt-6-luna critic v4 + Director v2). V1 = supervised-pilot ready; real-patient release blocked on OPEN human items in doc/release_checklist.md (provider terms, regulatory, CLINICAL-REVIEW sign-offs).**
 
 ---
 
@@ -4323,3 +4323,86 @@ running) — they push notes through input_rail/output_rail end to end.
 **MANUAL STEPS:** start Docker Desktop, `docker compose up -d postgres`,
 `uv run pytest tests/integration tests/e2e -q`; when available, test real
 clinic note formats (synthetic values) and send misses.
+
+### Section 14.7 — Critic over-rejection fix, real-case run, rule fixes ✅ DONE (user-directed; confirmation run pending)
+
+**Goal (user, 2026-10-20/21):** with Deva's GPU server online, fix the critic
+that rejected every report, test on the user's research images
+(`data/image_of_glucoma/`, REFUGE-format names; synthetic notes in
+`data/Medical_notes_for_glucoma/`), and leave the full project runnable.
+
+**Diagnosis** (stored run `eval-live-20261017T140231Z-d6ed738d`, then live
+real cases): the critic (v1, gpt-4o-mini) rejected standard clinical meaning,
+flagged caveats that ARE in limitations, demanded every fact, and never saw
+recommendations. On real cases more blockers surfaced, all in our own rules:
+the output-rail disclaimer regex rejected the Director prompt's own wording,
+"type 2 diabetes" was a stray number, the blur line (0.0002) and the
+whole-frame brightness wrongly failed sharp photos, and the Director wrote
+"no visual-field/OCT data" without reading the note.
+
+**Files:**
+- `prompts/critic/v2.md`, `v3.md`, `v4.md` (NEW; v1 kept). v4 is released:
+  standard clinical meaning and reference ranges are supported, rounding is
+  not an error, read the whole draft before "omitted", never raise
+  "could say more", the VF/OCT-absence limitation is correct unless a fact
+  reports VF/OCT. `prompts/director/v2.md` (NEW): read the note before
+  writing about VF/OCT, mandatory laterality claim (UNKNOWN → "eye not
+  specified"), no rounding-only disagreements, exact disclaimer text, and the
+  instruction-like limitation only when it is real.
+- `core/settings.py`: `DEFAULT_CRITIC_PROMPT_VERSION=v4`,
+  `DEFAULT_DIRECTOR_PROMPT_VERSION=v2` (fields `critic_prompt_version` /
+  `director_prompt_version`); critic model **gpt-6-luna** (owner's choice;
+  accepted exception: no dated snapshot, see doc/release_checklist.md
+  "Accepted exceptions"), T=1.0 (the only value it accepts),
+  `llm_reasoning_effort_critic=medium`, `llm_verbosity_critic=low`,
+  `llm_max_output_tokens_critic=12000`, `llm_model_options()` + a validator
+  so critic-only options never reach another agent's model. Every other agent
+  stays on gpt-4o-mini-2024-07-18. gpt-4.1-mini was evaluated
+  (`eval-live-20261020T154442Z-b5f50f4a`: S4 UNVERIFIED 0/18, combined recall
+  100%) but is NOT used (owner decision).
+- `llm/client_openai.py`: per-model `model_options` → `reasoning_effort` /
+  `verbosity` (omitted for other models). `graph/deps.py`, `eval/runners.py`,
+  `eval/ablation.py`: versions from settings, critic token cap, options;
+  eval provenance labels carry options; the judge follows the critic's
+  temperature.
+- `agents/templates.py`: the critic now sees `[draft-recommendations]`.
+- `vision/quality.py` + `configs/thresholds.yaml` (owner-approved): exposure
+  measured inside the field of view (`fov_pixel_min` 0.02, `fov_min_fraction`
+  0.20); blur line 0.0002 → 0.0001 (79 sharp photos min 0.000134; 1-px blurred
+  copies max 0.000063). Whole-frame brightness failed 7/79 sharp photos; inside
+  the eye 2/79 (g0021, g0027 really dim).
+- `configs/thresholds.yaml` `stray_number_whitelist.disease_type` (type 1/2
+  diabetes|DM) + `verify/deterministic.py`; `configs/guardrails/policies/
+  output_rail.yaml` accepts "supports screening … not … diagnos" in one
+  limitation (owner-approved).
+- `vision/client_http.py`: any `httpx.TransportError` (e.g. a ReadError when
+  the ngrok tunnel closed mid-request) is transient → retry → VISION_UNAVAILABLE
+  (was INTERNAL).
+- Tests: critic/director/eval tests keyed by the released versions;
+  recommendations rendering; settings (luna defaults, option scoping);
+  OpenAI wire (options only for their model); quality (black frame vs dark
+  eye); verifier (type 2 diabetes); rails output (+2 positives, +2
+  near-misses); vision client (dropped connection is transient).
+
+**Verified:** `pytest -m "not live"` 964 passed (Postgres up), ruff clean,
+mypy clean (120 files), lint-imports 8/8, schema snapshots up to date.
+Live (scratch scripts in the session scratchpad; real pipeline + Deva's GPU,
+separate DB `consilium_critic_check`): combined-layer fault injection with
+gpt-6-luna + v4 caught every seeded fault (7/7 per class, 3/3 suppressed
+disagreement); real cases 4/8 and then (Director v2) 2/4 PENDING_REVIEW, the
+rest stopped on real Director errors. gpt-6-luna runs at T=1, so verdicts vary
+between runs (one stored draft was rejected live, then approved 2/2 on re-audit).
+
+**Not verified / open:** no stored `eval-live` run with the final config
+(luna runs were stopped to save time/cost) — do one before release; the
+synthetic smoke corpus still gets 6/7 clean rejections (template wording);
+gpt-6-luna price not in `configs/eval.yaml` (cost null); Windows App Control
+blocked SQLAlchemy's compiled `.pyd` files again — renamed to
+`*.pyd.blocked-by-wdac` in the local `.venv` (pure-Python fallback in use;
+`uv sync` restores them).
+**CLINICAL-REVIEW:** quality-gate numbers and the disclaimer patterns
+(register updated in doc/release_checklist.md).
+**MANUAL STEPS:** keep Deva's server up when generating reports; choose the eye
+at upload; allow the `.venv` in Windows Security (or keep the rename);
+optionally add gpt-6-luna's price to `configs/eval.yaml`; run one stored
+`make eval-live` before release.

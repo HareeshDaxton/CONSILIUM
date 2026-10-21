@@ -14,11 +14,12 @@ Do NOT read older phase logs — the header + last entry are the checkpoint.
 CURRENT POSITION (as of last checkpoint): Phase 14 COMPLETE (observability +
 alerts + runbook; threat model + CI security scans + erasure job; load test +
 DR rehearsal; release checklist + model card + INTAKE_FROZEN), then user-directed
-14.5 (UI redesign) and 14.6 (Indian-format PHI patterns). All 14 plan
+14.5 (UI redesign), 14.6 (Indian-format PHI patterns) and 14.7 (critic
+fix: gpt-6-luna critic v4, Director v2, quality/disclaimer rule fixes). All 14 plan
 phases implemented. V1 = supervised-pilot ready; real-patient release blocked
 on OPEN human items in doc/release_checklist.md.
-NEXT TASK: fix critic over-rejection (critic prompt v2 via prompt-change skill
-+ fault-injection re-run), laterality-UNKNOWN verifier gap — awaiting go-ahead.
+NEXT TASK: one stored `make eval-live` confirmation run with the final config;
+laterality-UNKNOWN verifier gap; Phase 10 decisions (pending from the user).
 2. `SKILLS.md` — read ONLY the index table + the ONE skill matching the
 current task. For Phase 5 Section 5.1 that is the LLM-client-hardening /
 agent-prompt skills. Read no other skills unless the task later requires them.

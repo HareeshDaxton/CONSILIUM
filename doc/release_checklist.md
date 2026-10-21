@@ -33,11 +33,24 @@ ready for a supervised pilot on synthetic or consented research data.
 
 ## Release-blocking findings carried from Phase 13
 
-- **Critic over-rejection:** S4 UNVERIFIED rate 1.0 and critic false-rejection 7/7 in the live run.
-  Needs critic prompt v2 and/or a different critic snapshot (prompt-change skill plus a fault-injection
-  re-run). Until then, every report reaches clinicians as UNVERIFIED.
+- **Critic over-rejection: ADDRESSED 2026-10-20/21, needs a stored confirmation run.** Critic prompt
+  v4 on `gpt-6-luna` (reasoning medium, verbosity low) plus Director prompt v2. Measured with scratch
+  scripts, not yet as a stored `eval-live` run (I-11): combined-layer fault injection on the 7-draft
+  corpus caught 7/7 in every class (3/3 suppressed disagreement). Real REFUGE-format cases with
+  synthetic notes: 4/8 then 2/4 reached PENDING_REVIEW; the remaining stops were, on manual reading,
+  real Director errors (for example "no visual-field data" when the note reported perimetry). The
+  synthetic smoke corpus still sees 6/7 clean-draft rejections, mostly against template wording.
+  Earlier stored runs: v2 on gpt-4o-mini `eval-live-20261020T152513Z-c5a4120c` (S4 UNVERIFIED 0.83);
+  v3 on gpt-4.1-mini `eval-live-20261020T154442Z-b5f50f4a` (S4 UNVERIFIED 0.0; not adopted, by the
+  owner's model choice). TODO: one stored `make eval-live` run with the final configuration.
 - **Verifier gap:** a laterality flip goes undetected when laterality is UNKNOWN (fault-injection miss).
 - **Minority-opinion loss** in routed stages: Director prompt review.
+
+## Accepted exceptions
+
+| Exception | Rule broken | Why accepted | Owner / date | Mitigation |
+|---|---|---|---|---|
+| Critic model `gpt-6-luna` has no dated snapshot | AGENTS.md §6: model IDs pinned to dated snapshots | The owner chose it for the critic; every other agent stays on `gpt-4o-mini-2024-07-18` | HareeshDaxton, 2026-10-20 | The provider can change its behaviour without a code change, so re-run critic fault injection after any provider model update and before every release. It only runs at temperature 1, so verdicts are not deterministic: the same draft can pass on one run and fail on another. |
 
 ## CLINICAL-REVIEW register (each needs a named clinician and a date, or acceptance as a risk with an owner)
 
@@ -45,10 +58,10 @@ ready for a supervised pilot on synthetic or consented research data.
 |---|---|---|---|
 | `configs/routing.yaml:6` | Role allowlists (who sees which facts) | ______ | ______ |
 | `configs/thresholds.yaml:6` | Screening-tier cut-offs (placeholders until calibrated) | ______ | ______ |
-| `configs/thresholds.yaml:18` | Image-quality heuristics | ______ | ______ |
+| `configs/thresholds.yaml:18` | Image-quality heuristics (blur line 0.0001 and field-of-view exposure set 2026-10-20 from 79 research photos, owner-approved; still needs a clinician) | ______ | ______ |
 | `configs/thresholds.yaml:48` | Disagreement topics and stance markers | ______ | ______ |
 | `configs/guardrails/policies/input_rail.yaml:23,27,43` | Note length cap, control-character ratio, PHI redact vs block | ______ | ______ |
-| `configs/guardrails/policies/output_rail.yaml:13` | Mandatory disclaimer patterns | ______ | ______ |
+| `configs/guardrails/policies/output_rail.yaml:13` | Mandatory disclaimer patterns (the "supports screening … not diagnose" form was added 2026-10-20, owner-approved) | ______ | ______ |
 | `src/consilium/intake/extractor.py:31` | Extraction-confidence heuristic | ______ | ______ |
 | `src/consilium/review/service.py:223` | Self-review rule scope (approvals only) | ______ | ______ |
 | `src/consilium/vision/quality.py:13` | Quality-gate thresholds (see thresholds.yaml) | ______ | ______ |
