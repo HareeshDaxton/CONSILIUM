@@ -223,6 +223,24 @@ class TestCheckStrayNumbers:
         )
         assert check_stray_numbers(draft, entry.global_ctx, thresholds) == ()
 
+    @pytest.mark.parametrize(
+        "text", ["Comorbid type 2 diabetes is noted.", "History of Type 1 DM.", "type2 diabetes"]
+    )
+    def test_disease_type_numeral_passes(
+        self, entry: fi.CorpusEntry, thresholds: Thresholds, text: str
+    ) -> None:
+        draft = _mutate(entry.draft, "c1", text=text)
+        assert check_stray_numbers(draft, entry.global_ctx, thresholds) == ()
+
+    def test_other_numbers_next_to_type_still_flagged(
+        self, entry: fi.CorpusEntry, thresholds: Thresholds
+    ) -> None:
+        # only "type 1/2 diabetes|DM" is whitelisted; "type 3" or a bare "2" is not
+        draft = _mutate(entry.draft, "c1", text="Type 3 pattern seen, grade 2.")
+        assert _types(check_stray_numbers(draft, entry.global_ctx, thresholds)) == {
+            IssueType.UNSUPPORTED
+        }
+
     def test_numeral_within_tolerance_of_cited_fact_passes(
         self, entry: fi.CorpusEntry, thresholds: Thresholds
     ) -> None:

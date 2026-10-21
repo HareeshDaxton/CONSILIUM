@@ -18,6 +18,8 @@ QUALITY = PostInferenceQualityConfig(
     underexposed_below=0.12,
     overexposed_above=0.90,
     blur_laplacian_var_below=0.0002,
+    fov_pixel_min=0.02,
+    fov_min_fraction=0.20,
     fundus_red_blue_margin=0.05,
     min_disc_area_fraction=0.005,
     max_disc_area_fraction=0.30,
@@ -90,6 +92,27 @@ class TestAssessQuality:
         result = assess_quality(_rgb((0.02, 0.02, 0.01)), _good_disc(), QUALITY)
         assert QualityFlag.UNDEREXPOSED in result.flags
         assert not result.gradable
+
+    def test_black_frame_is_not_underexposure(self) -> None:
+        # Real fundus photo layout: a lit circle inside a black frame (~20%).
+        # Whole-image mean ~0.10 (< 0.12) but inside the eye ~0.13 → fine.
+        size = 64
+        yy, xx = np.mgrid[0:size, 0:size]
+        circle = ((yy - size / 2) ** 2 + (xx - size / 2) ** 2) <= (size * 0.5) ** 2
+        img = _sharp_fundus(size) * 0.42
+        img[~circle] = 0.0
+        assert img.mean() < QUALITY.underexposed_below  # the old whole-frame reading
+        result = assess_quality(img, _good_disc(), QUALITY)
+        assert QualityFlag.UNDEREXPOSED not in result.flags
+
+    def test_dark_eye_inside_black_frame_still_underexposed(self) -> None:
+        size = 64
+        yy, xx = np.mgrid[0:size, 0:size]
+        circle = ((yy - size / 2) ** 2 + (xx - size / 2) ** 2) <= (size * 0.5) ** 2
+        img = np.zeros((size, size, 3), dtype=np.float32)
+        img[circle] = (0.10, 0.06, 0.03)  # lit, but dark inside the eye
+        result = assess_quality(img, _good_disc(), QUALITY)
+        assert QualityFlag.UNDEREXPOSED in result.flags
 
     def test_overexposed(self) -> None:
         result = assess_quality(_rgb((0.99, 0.98, 0.97)), _good_disc(), QUALITY)

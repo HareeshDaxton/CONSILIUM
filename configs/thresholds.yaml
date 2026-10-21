@@ -16,9 +16,20 @@ image_precheck:
 
 post_inference_quality:
   # CLINICAL-REVIEW: heuristic thresholds on 0..1-normalized RGB; tune on data.
-  underexposed_below: 0.12       # mean intensity below → UNDEREXPOSED
-  overexposed_above: 0.90        # mean intensity above → OVEREXPOSED
-  blur_laplacian_var_below: 0.0002  # Laplacian variance below → BLURRED
+  underexposed_below: 0.12       # mean intensity INSIDE the field of view below → UNDEREXPOSED
+  overexposed_above: 0.90        # mean intensity INSIDE the field of view above → OVEREXPOSED
+  # Field of view = pixels brighter than fov_pixel_min (the black frame around a
+  # fundus photo is excluded). Below fov_min_fraction lit pixels, the whole image
+  # is used instead. Set 2026-10-20 (user-approved): measuring the whole frame
+  # flagged 7 of 79 sharp research photos UNDEREXPOSED; inside the eye, 2 of 79.
+  fov_pixel_min: 0.02
+  fov_min_fraction: 0.20
+  # Laplacian variance below → BLURRED. 0.0002 → 0.0001 on 2026-10-20
+  # (user-approved): over 79 sharp research fundus photos (REFUGE-format,
+  # 2124x2056) sharp min = 0.000134; the same photos blurred by 1 px max =
+  # 0.000063, 2 px max = 0.000009. 0.0001 passes every sharp photo and stops
+  # every blurred copy. One camera/dataset only — re-check on other devices.
+  blur_laplacian_var_below: 0.0001
   fundus_red_blue_margin: 0.05   # mean(R)-mean(B) below → NOT_FUNDUS
   min_disc_area_fraction: 0.005  # disc area / image area outside range → DISC_NOT_VISIBLE
   max_disc_area_fraction: 0.30
@@ -40,6 +51,9 @@ stray_number_whitelist:
   date: '\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}/\d{1,2}/\d{4}\b|\b(?:19|20)\d{2}\b'
   follow_up_interval: '\b\d+\s?(?:–|—|-|to)\s?\d+\s?(?:days?|weeks?|months?|years?)\b|\b\d+\s?(?:days?|weeks?|months?|years?)\b'
   age: '\b\d+\s?-?\s?(?:years?[- ]old|y/?o\b|years? of age)'
+  # Disease names that carry a number ("type 2 diabetes", "type 1 DM") — added
+  # 2026-10-20 (user-approved) after real notes stopped reports on the "2".
+  disease_type: '\btype\s?[12]\s+(?:diabet\w*|DM)\b'
 
 disagreement_topics:
   # Deterministic verifier (P7, §13.1): if sub-reports from different roles

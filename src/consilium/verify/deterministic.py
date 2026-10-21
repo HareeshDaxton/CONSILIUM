@@ -158,6 +158,7 @@ def check_stray_numbers(
             thresholds.stray_number_whitelist.date,
             thresholds.stray_number_whitelist.follow_up_interval,
             thresholds.stray_number_whitelist.age,
+            thresholds.stray_number_whitelist.disease_type,
         )
     )
     tolerances = thresholds.numeric_tolerances

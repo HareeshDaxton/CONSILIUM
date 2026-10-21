@@ -65,7 +65,13 @@ def assess_quality(
 ) -> ImageQuality:
     """Post-inference quality assessment. ``image`` is HxWx3 float in [0,1]."""
     flags: list[QualityFlag] = []
-    mean_intensity = float(image.mean())
+    # Exposure is judged inside the circular field of view: the black frame
+    # around a fundus photo (~20% of the image) is not underexposure. A frame
+    # with too few lit pixels falls back to the whole-image mean.
+    gray_all = image.mean(axis=2)
+    fov = gray_all > cfg.fov_pixel_min
+    use_fov = float(fov.mean()) >= cfg.fov_min_fraction
+    mean_intensity = float(gray_all[fov].mean() if use_fov else gray_all.mean())
 
     exposure_score = 1.0
     if mean_intensity < cfg.underexposed_below:
@@ -75,7 +81,7 @@ def assess_quality(
         flags.append(QualityFlag.OVEREXPOSED)
         exposure_score = (1.0 - mean_intensity) / (1.0 - cfg.overexposed_above)
 
-    gray = image.mean(axis=2)
+    gray = gray_all
     blur_var = _laplacian_variance(gray)
     blur_score = min(1.0, blur_var / cfg.blur_laplacian_var_below)
     if blur_var < cfg.blur_laplacian_var_below:

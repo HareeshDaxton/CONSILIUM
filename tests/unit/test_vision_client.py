@@ -70,6 +70,17 @@ class TestHttpContract:
             with pytest.raises(VisionTransient):
                 await _client().predict(IMAGE)
 
+    @pytest.mark.parametrize(
+        "exc",
+        [httpx.ReadError("dropped"), httpx.RemoteProtocolError("closed"), httpx.WriteError("x")],
+    )
+    async def test_dropped_connection_is_transient(self, exc: httpx.TransportError) -> None:
+        # seen live: the ngrok tunnel closed mid-request → was INTERNAL, must retry
+        with respx.mock(base_url=URL) as mock:
+            mock.post("/predict").mock(side_effect=exc)
+            with pytest.raises(VisionTransient):
+                await _client().predict(IMAGE)
+
     async def test_revision_mismatch_fails_closed(self) -> None:
         with respx.mock(base_url=URL) as mock:
             mock.post("/predict").respond(200, json=_payload(revision="consilium-vision-OTHER"))

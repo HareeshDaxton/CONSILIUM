@@ -83,6 +83,8 @@ POSITIVES: dict[str, tuple[DirectorDraft, ...]] = {
         _with_limitations("Support the clinician."),
         _with_limitations("Not a diagnostic report."),
         _with_limitations("screening  done; support pending"),
+        _with_limitations("This report supports screening."),  # no "not diagnose"
+        _with_limitations("Supports screening workflows.", "Not a diagnostic report."),
     ),
 }
 
@@ -121,6 +123,9 @@ NEAR_MISSES: dict[str, tuple[DirectorDraft, ...]] = {
         _with_limitations("This is screening  support output."),
         _with_limitations("Screening‑support only."),  # non-breaking hyphen
         _with_limitations("Scrеening support only."),  # Cyrillic e folded
+        # the Director prompt's own wording (seen on real cases, 2026-10-20)
+        _with_limitations("This report supports screening and does not diagnose."),
+        _with_limitations("The report supports screening and does not diagnose any conditions."),
     ),
 }
 

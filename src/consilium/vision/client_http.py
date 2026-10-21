@@ -80,7 +80,11 @@ class HttpVisionClient:
                 content=image_bytes,
                 headers={"Content-Type": "application/octet-stream"},
             )
-        except (httpx.TimeoutException, httpx.ConnectError) as exc:
+        except httpx.TransportError as exc:
+            # Any connection-level failure (timeout, connect, dropped read/write,
+            # protocol error — e.g. a tunnel closing mid-request) is retryable:
+            # inference is stateless, and the retry budget still fails closed
+            # as VISION_UNAVAILABLE instead of an unmapped INTERNAL error.
             raise VisionTransient(f"transport: {type(exc).__name__}") from exc
 
         if response.status_code in _TRANSIENT_STATUSES:

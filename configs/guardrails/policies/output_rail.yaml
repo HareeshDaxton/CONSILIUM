@@ -16,5 +16,10 @@ disclaimer:
   # diagnosis.").
   # Separator: optional space / ASCII hyphen / U+2010 / U+2011 (NFKC leaves the
   # Unicode hyphens in place, so they are listed explicitly).
+  # The Director prompt (prompts/director/v1.md, Limitations rule) words it
+  # "this report supports screening and does not diagnose" — accepted since
+  # 2026-10-20 (user-approved) only when the SAME entry also says it does not
+  # diagnose, so "supports screening" alone still fails.
   any_of:
     - 'screening[\s‐‑-]?support'
+    - '\bsupports?[\s‐‑-]+screening\b.{0,80}?\b(?:not|never)\b.{0,40}?\bdiagnos'

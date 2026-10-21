@@ -43,6 +43,8 @@ class PostInferenceQualityConfig(_ConfigModel):
     underexposed_below: float = Field(ge=0, le=1)
     overexposed_above: float = Field(ge=0, le=1)
     blur_laplacian_var_below: float = Field(gt=0)
+    fov_pixel_min: float = Field(ge=0, le=1)
+    fov_min_fraction: float = Field(gt=0, le=1)
     fundus_red_blue_margin: float
     min_disc_area_fraction: float = Field(gt=0, le=1)
     max_disc_area_fraction: float = Field(gt=0, le=1)
@@ -62,6 +64,7 @@ class StrayNumberWhitelist(_ConfigModel):
     date: str
     follow_up_interval: str
     age: str
+    disease_type: str
 
 
 class DisagreementTopic(_ConfigModel):
